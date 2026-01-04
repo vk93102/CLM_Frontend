@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from './Sidebar';
 
 // Type definitions
@@ -32,7 +32,7 @@ const Dashboard = () => {
   const [error, setError] = useState<string | null>(null);
   
   // Base URL from the API documentation
-  const BASE_URL = "https://clm-backend-y5ta.onrender.com/api";
+  const BASE_URL = "http://13.48.148.79//api";
   
   // Helper to get token from localStorage
   const getToken = () => {
@@ -42,7 +42,7 @@ const Dashboard = () => {
     return null;
   };
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     setLoading(true);
     setError(null);
     
@@ -102,11 +102,11 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+  }, [fetchDashboardData]);
 
   // Helper function to get status pill styling
   const getStatusStyles = (status: string) => {
@@ -133,7 +133,7 @@ const Dashboard = () => {
         <header className="flex justify-between items-center mb-10">
           <div>
             <h1 className="text-4xl font-bold text-[#2D3748]">Overview</h1>
-            <p className="text-gray-500 mt-1">Welcome back! Here's what's happening today.</p>
+            <p className="text-gray-500 mt-1">Welcome back! Here&apos;s what&apos;s happening today.</p>
           </div>
           <div className="flex items-center gap-4">
             {loading && (

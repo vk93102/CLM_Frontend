@@ -167,7 +167,7 @@ Navigate to [http://localhost:3000](http://localhost:3000)
 
 ## 🔧 API Configuration
 
-Base URL: `https://clm-backend-y5ta.onrender.com/api`
+Base URL: `http://13.48.148.79//api`
 
 ### **Token Management**
 Tokens are stored in `localStorage`:
@@ -227,7 +227,7 @@ You can create a new account via the Signup form, or use the API directly:
 
 ### **Register:**
 ```bash
-curl -X POST https://clm-backend-y5ta.onrender.com/api/auth/register/ \
+curl -X POST http://13.48.148.79//api/auth/register/ \
   -H "Content-Type: application/json" \
   -d '{
     "email": "your@email.com",
@@ -239,7 +239,7 @@ curl -X POST https://clm-backend-y5ta.onrender.com/api/auth/register/ \
 
 ### **Login:**
 ```bash
-curl -X POST https://clm-backend-y5ta.onrender.com/api/auth/login/ \
+curl -X POST http://13.48.148.79//api/auth/login/ \
   -H "Content-Type: application/json" \
   -d '{
     "email": "your@email.com",
@@ -323,7 +323,7 @@ MIT License - feel free to use this code for your projects!
 
 For issues or questions:
 1. Check browser console for errors
-2. Verify API is running at https://clm-backend-y5ta.onrender.com
+2. Verify API is running at http://13.48.148.79/
 3. Check network tab for failed requests
 
 ---

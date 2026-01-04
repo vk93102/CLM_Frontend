@@ -204,7 +204,7 @@ const [error, setError] = useState<string | null>(null);
 
 ### Base URL
 ```
-https://clm-backend-y5ta.onrender.com/api
+http://13.48.148.79//api
 ```
 
 ### Authentication
@@ -302,7 +302,7 @@ localStorage.getItem('user')
 ### Test API Call
 ```javascript
 // In browser console
-fetch('https://clm-backend-y5ta.onrender.com/api/contracts/statistics/', {
+fetch('http://13.48.148.79//api/contracts/statistics/', {
   headers: {
     'Authorization': 'Bearer ' + localStorage.getItem('access_token')
   }
@@ -366,7 +366,7 @@ npm run start
 
 ### Environment Variables (if needed)
 ```env
-NEXT_PUBLIC_API_URL=https://clm-backend-y5ta.onrender.com/api
+NEXT_PUBLIC_API_URL=http://13.48.148.79//api
 ```
 
 ---

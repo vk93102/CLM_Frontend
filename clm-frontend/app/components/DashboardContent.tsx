@@ -62,7 +62,6 @@ const DashboardContent: React.FC<DashboardProps> = ({ onLogout }) => {
   const [jobs, setJobs] = useState<GenerationJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sidebarExpanded, setSidebarExpanded] = useState(false);
   
   const user = tokenManager.getUser();
 
@@ -127,7 +126,7 @@ const DashboardContent: React.FC<DashboardProps> = ({ onLogout }) => {
           <div>
             <h1 className="text-4xl font-bold text-[#2D3748]">Dashboard Overview</h1>
             <p className="text-gray-500 mt-1">
-              Welcome back, {user?.first_name || user?.email || 'User'}! Here's your contract status.
+              Welcome back, {user?.first_name || user?.email || 'User'}! Here&apos;s your contract status.
             </p>
           </div>
           <div className="flex items-center gap-4">

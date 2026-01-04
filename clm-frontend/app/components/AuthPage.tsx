@@ -27,8 +27,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
     try {
       await authAPI.login({ email, password });
       onAuthSuccess();
-    } catch (err: any) {
-      setError(err.message || 'Login failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
       setLoading(false);
     }
@@ -47,8 +47,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
         last_name: lastName,
       });
       onAuthSuccess();
-    } catch (err: any) {
-      setError(err.message || 'Signup failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Signup failed');
     } finally {
       setLoading(false);
     }
@@ -64,8 +64,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ onAuthSuccess }) => {
       await authAPI.forgotPassword(email);
       setSuccess('Password reset link has been sent to your email!');
       setEmail('');
-    } catch (err: any) {
-      setError(err.message || 'Failed to send reset link');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to send reset link');
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,5 @@
 // API Service - Centralized API Management
-const BASE_URL = 'https://clm-backend-y5ta.onrender.com/api';
+const BASE_URL = 'http://13.48.148.79/api';
 
 // Token Management
 export const tokenManager = {
@@ -24,7 +24,7 @@ export const tokenManager = {
     }
   },
   
-  setUser: (user: any) => {
+  setUser: (user: Record<string, unknown>) => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('user', JSON.stringify(user));
     }
@@ -73,7 +73,8 @@ async function apiRequest(endpoint: string, options: RequestInit = {}) {
       });
 
       if (refreshResponse.ok) {
-        const { access, refresh } = await refreshResponse.json();
+        const result = await refreshResponse.json();
+        const { access, refresh } = result;
         tokenManager.setTokens(access, refresh);
         
         // Retry original request with new token
@@ -117,7 +118,7 @@ export const authAPI = {
     
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.message || 'Registration failed');
+      throw new Error(error.error || error.message || 'Registration failed');
     }
     
     const result = await response.json();
@@ -135,7 +136,7 @@ export const authAPI = {
     
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.detail || 'Login failed');
+      throw new Error(error.detail || error.error || 'Login failed');
     }
     
     const result = await response.json();
@@ -155,7 +156,8 @@ export const authAPI = {
       throw new Error('Failed to send reset link');
     }
     
-    return await response.json();
+    const result = await response.json();
+    return result;
   },
 
   // POST /api/auth/reset-password/
@@ -169,7 +171,8 @@ export const authAPI = {
       throw new Error('Failed to reset password');
     }
     
-    return await response.json();
+    const result = await response.json();
+    return result;
   },
 
   logout: () => {
@@ -187,7 +190,8 @@ export const contractAPI = {
       throw new Error('Failed to fetch statistics');
     }
     
-    return await response.json();
+    const result = await response.json();
+    return result;
   },
 
   // GET /api/contracts/recent/
@@ -198,11 +202,12 @@ export const contractAPI = {
       throw new Error('Failed to fetch recent contracts');
     }
     
-    return await response.json();
+    const result = await response.json();
+    return result;
   },
 
   // POST /api/contracts/validate-clauses/
-  validateClauses: async (clauses: any[]) => {
+  validateClauses: async (clauses: unknown[]) => {
     const response = await apiRequest('/contracts/validate-clauses/', {
       method: 'POST',
       body: JSON.stringify({ clauses }),
@@ -212,7 +217,8 @@ export const contractAPI = {
       throw new Error('Failed to validate clauses');
     }
     
-    return await response.json();
+    const result = await response.json();
+    return result;
   },
 };
 
@@ -226,7 +232,8 @@ export const templateAPI = {
       throw new Error('Failed to fetch templates');
     }
     
-    return await response.json();
+    const result = await response.json();
+    return result;
   },
 };
 
@@ -240,7 +247,8 @@ export const clauseAPI = {
       throw new Error('Failed to fetch clauses');
     }
     
-    return await response.json();
+    const result = await response.json();
+    return result;
   },
 };
 
@@ -254,7 +262,8 @@ export const jobAPI = {
       throw new Error('Failed to fetch generation jobs');
     }
     
-    return await response.json();
+    const result = await response.json();
+    return result;
   },
 };
 
@@ -268,11 +277,12 @@ export const featuresAPI = {
       throw new Error('Failed to fetch features');
     }
     
-    return await response.json();
+    const result = await response.json();
+    return result;
   },
 };
 
-export default {
+const api = {
   auth: authAPI,
   contract: contractAPI,
   template: templateAPI,
@@ -281,3 +291,5 @@ export default {
   features: featuresAPI,
   tokenManager,
 };
+
+export default api;

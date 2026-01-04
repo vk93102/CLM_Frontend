@@ -12,6 +12,7 @@ export default function Home() {
   useEffect(() => {
     // Check if user is already authenticated
     const token = tokenManager.getAccessToken();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsAuthenticated(!!token);
     setIsLoading(false);
   }, []);
