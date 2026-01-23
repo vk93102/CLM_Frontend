@@ -1,17 +1,5 @@
 'use client'
 
-/**
- * Templates Management Page
- * Production-level implementation with all 5 template API endpoints integrated
- * 
- * Features:
- * - View all 7 template types (NDA, MSA, EMPLOYMENT, SERVICE_AGREEMENT, AGENCY_AGREEMENT, PROPERTY_MANAGEMENT, PURCHASE_AGREEMENT)
- * - View detailed template information with required/optional fields
- * - Validate template data before creation
- * - Create templates from predefined types
- * - Comprehensive error handling and loading states
- */
-
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/app/lib/auth-context'
@@ -19,12 +7,27 @@ import {
   templateAPI,
   tokenManager,
   TemplateTypeInfo,
-  TemplateField,
   TemplateCreateRequest,
-  APIError,
 } from '@/app/lib/api'
+import { 
+  FileText, 
+  Plus, 
+  Search, 
+  Eye, 
+  Download, 
+  X, 
+  CheckCircle, 
+  AlertCircle,
+  FileCheck,
+  Briefcase,
+  Users,
+  Home,
+  ShoppingCart,
+  Shield,
+  FileSignature,
+  Loader2
+} from 'lucide-react'
 
-// Template type keys
 const TEMPLATE_TYPES = [
   'NDA',
   'MSA',
@@ -37,23 +40,44 @@ const TEMPLATE_TYPES = [
 
 type TemplateType = typeof TEMPLATE_TYPES[number]
 
+const templateIcons: Record<string, any> = {
+  NDA: Shield,
+  MSA: FileSignature,
+  EMPLOYMENT: Users,
+  SERVICE_AGREEMENT: Briefcase,
+  AGENCY_AGREEMENT: FileCheck,
+  PROPERTY_MANAGEMENT: Home,
+  PURCHASE_AGREEMENT: ShoppingCart,
+}
+
+const templateColors: Record<string, string> = {
+  NDA: 'from-blue-500 to-blue-600',
+  MSA: 'from-purple-500 to-purple-600',
+  EMPLOYMENT: 'from-green-500 to-green-600',
+  SERVICE_AGREEMENT: 'from-orange-500 to-orange-600',
+  AGENCY_AGREEMENT: 'from-pink-500 to-pink-600',
+  PROPERTY_MANAGEMENT: 'from-indigo-500 to-indigo-600',
+  PURCHASE_AGREEMENT: 'from-red-500 to-red-600',
+}
+
 export default function TemplatesPageNew() {
   const router = useRouter()
   const { isAuthenticated, isLoading: authLoading } = useAuth()
 
-  // State management
   const [templateTypes, setTemplateTypes] = useState<Record<string, TemplateTypeInfo>>({})
+  const [createdTemplates, setCreatedTemplates] = useState<any[]>([])
   const [selectedType, setSelectedType] = useState<TemplateType | null>(null)
   const [selectedTypeDetail, setSelectedTypeDetail] = useState<TemplateTypeInfo | null>(null)
+  const [previewTemplate, setPreviewTemplate] = useState<any>(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   
-  // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showDetailModal, setShowDetailModal] = useState(false)
+  const [showPreviewModal, setShowPreviewModal] = useState(false)
   
-  // Form data for template creation
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -65,84 +89,73 @@ export default function TemplatesPageNew() {
   const [isValidating, setIsValidating] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
 
-  // Authentication check
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
       router.push('/')
     }
   }, [isAuthenticated, authLoading, router])
 
-  // Load all template types on mount
   useEffect(() => {
     if (isAuthenticated) {
-      loadTemplateTypes()
+      loadAllData()
     }
   }, [isAuthenticated])
 
-  /**
-   * Load all available template types
-   * GET /api/v1/templates/types/
-   */
-  const loadTemplateTypes = async () => {
+  const loadAllData = async () => {
+    await Promise.all([
+      fetchTemplateTypes(),
+      fetchCreatedTemplates()
+    ])
+  }
+
+  const fetchTemplateTypes = async () => {
     try {
       setIsLoading(true)
-      setError('')
       const token = tokenManager.getAccessToken()
-      if (!token) {
-        router.push('/')
-        return
-      }
+      if (!token) return
 
       const response = await templateAPI.getAllTemplateTypes(token)
       setTemplateTypes(response.template_types)
     } catch (err: any) {
       setError(err.message || 'Failed to load template types')
-      console.error('Error loading template types:', err)
     } finally {
       setIsLoading(false)
     }
   }
 
-  /**
-   * Load detailed information for a specific template type
-   * GET /api/v1/templates/types/{type}/
-   */
-  const loadTemplateDetail = async (templateType: TemplateType) => {
+  const fetchCreatedTemplates = async () => {
+    try {
+      const token = tokenManager.getAccessToken()
+      if (!token) return
+
+      const templates = await templateAPI.getTemplates(token)
+      setCreatedTemplates(templates)
+    } catch (err: any) {
+      console.error('Failed to load created templates:', err)
+    }
+  }
+
+  const handleTemplateTypeClick = async (templateType: TemplateType) => {
     try {
       setError('')
       const token = tokenManager.getAccessToken()
       if (!token) return
 
-      const response = await templateAPI.getTemplateTypeDetail(token, templateType)
-      setSelectedTypeDetail({
-        display_name: response.display_name,
-        description: response.description,
-        contract_type: response.contract_type,
-        required_fields: response.required_fields,
-        optional_fields: response.optional_fields,
-        mandatory_clauses: response.mandatory_clauses,
-        business_rules: response.business_rules,
-        sample_data: response.sample_data,
-      })
-      setSelectedType(templateType)
+      const detail = await templateAPI.getTemplateTypeDetail(token, templateType)
+      setSelectedTypeDetail(detail)
       setShowDetailModal(true)
     } catch (err: any) {
       setError(err.message || 'Failed to load template details')
-      console.error('Error loading template detail:', err)
     }
   }
 
-  /**
-   * Initialize create form with a template type
-   */
-  const startTemplateCreation = (templateType: TemplateType) => {
+  const handleCreateFromType = (templateType: TemplateType) => {
     const typeInfo = templateTypes[templateType]
     if (!typeInfo) return
 
-    // Initialize form data with empty values for required fields
     const initialData: Record<string, any> = {}
     typeInfo.required_fields.forEach((field) => {
-      initialData[field.name] = field.sample_data?.[field.name] || ''
+      initialData[field.name] = typeInfo.sample_data?.[field.name] || ''
     })
 
     setSelectedType(templateType)
@@ -154,13 +167,10 @@ export default function TemplatesPageNew() {
       data: initialData,
     })
     setValidationErrors([])
+    setShowDetailModal(false)
     setShowCreateModal(true)
   }
 
-  /**
-   * Validate template data before creation
-   * POST /api/v1/templates/validate/
-   */
   const validateTemplateData = async (): Promise<boolean> => {
     if (!selectedType) return false
 
@@ -189,10 +199,6 @@ export default function TemplatesPageNew() {
     }
   }
 
-  /**
-   * Create template from type
-   * POST /api/v1/templates/create-from-type/
-   */
   const handleCreateTemplate = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -201,79 +207,99 @@ export default function TemplatesPageNew() {
       return
     }
 
-    if (!formData.name.trim()) {
-      setError('Template name is required')
-      return
-    }
+    setError('')
+    setSuccessMessage('')
 
-    // Validate before creating
     const isValid = await validateTemplateData()
     if (!isValid) {
-      setError('Please fill all required fields')
+      setError('Please fill in all required fields')
       return
     }
 
     try {
       setIsCreating(true)
-      setError('')
       const token = tokenManager.getAccessToken()
-      if (!token) return
+      if (!token) {
+        setError('Authentication required')
+        return
+      }
 
-      const createRequest: TemplateCreateRequest = {
+      const response = await templateAPI.createTemplateFromType(token, {
         template_type: selectedType,
         name: formData.name,
         description: formData.description,
         status: formData.status,
         data: formData.data,
-      }
+      })
 
-      const response = await templateAPI.createTemplateFromType(token, createRequest)
-
-      setSuccessMessage(
-        `Template "${response.name}" created successfully! Template ID: ${response.template_id}`
-      )
+      setSuccessMessage(`Template "${response.name}" created successfully!`)
       setShowCreateModal(false)
       
-      // Reset form
+      await fetchCreatedTemplates()
+      
       setFormData({
         name: '',
         description: '',
         status: 'draft',
         data: {},
       })
-      setValidationErrors([])
+      setSelectedType(null)
+      
+      setTimeout(() => setSuccessMessage(''), 5000)
     } catch (err: any) {
-      if (err instanceof APIError) {
-        setError(err.message)
-      } else {
-        setError('Failed to create template. Please try again.')
-      }
-      console.error('Error creating template:', err)
+      setError(err.message || 'Failed to create template')
     } finally {
       setIsCreating(false)
     }
   }
 
-  /**
-   * Update form data field value
-   */
-  const updateFormDataField = (fieldName: string, value: any) => {
-    setFormData((prev) => ({
-      ...prev,
-      data: {
-        ...prev.data,
-        [fieldName]: value,
-      },
-    }))
+  const handlePreview = async (template: any) => {
+    setPreviewTemplate(template)
+    setShowPreviewModal(true)
   }
 
-  // Loading state
+  const handleDownload = async (template: any) => {
+    try {
+      const token = tokenManager.getAccessToken()
+      if (!token) return
+
+      const content = `Template: ${template.name}\n\nType: ${template.contract_type}\n\nDescription: ${template.description || 'N/A'}\n\nContent:\n${JSON.stringify(template, null, 2)}`
+      
+      const blob = new Blob([content], { type: 'text/plain' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${template.name.replace(/\s+/g, '_')}.txt`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+      
+      setSuccessMessage('Template downloaded successfully!')
+      setTimeout(() => setSuccessMessage(''), 3000)
+    } catch (err: any) {
+      setError(err.message || 'Failed to download template')
+    }
+  }
+
+  const filteredTypes = TEMPLATE_TYPES.filter(type => {
+    const typeInfo = templateTypes[type]
+    if (!typeInfo) return false
+    return typeInfo.display_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+           typeInfo.description.toLowerCase().includes(searchQuery.toLowerCase())
+  })
+
+  const filteredCreatedTemplates = createdTemplates.filter(template => 
+    template.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    template.contract_type?.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
   if (authLoading || isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading templates...</p>
+          <Loader2 className="w-16 h-16 text-purple-600 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600 text-lg">Loading templates...</p>
         </div>
       </div>
     )
@@ -283,289 +309,377 @@ export default function TemplatesPageNew() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 py-6">
+          <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Contract Templates</h1>
-              <p className="mt-2 text-sm text-gray-600">
-                Create professional contracts from pre-built templates
+              <h1 className="text-2xl font-bold text-gray-900">Template Repository</h1>
+              <p className="text-sm text-gray-500 mt-1">
+                View and manage all active agreements across the organization
               </p>
             </div>
             <button
-              onClick={() => router.push('/dashboard')}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+              onClick={() => {
+                // Auto-select first template type for creation
+                if (TEMPLATE_TYPES.length > 0) {
+                  handleCreateFromType(TEMPLATE_TYPES[0])
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-pink-500 to-rose-500 text-white rounded-lg hover:shadow-lg transition font-medium"
             >
-              Back to Dashboard
+              <Plus className="w-4 h-4" />
+              Create Template
+            </button>
+          </div>
+
+          {/* Search and Filters */}
+          <div className="flex items-center gap-4">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by name, counterparty, or ID..."
+                className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+              />
+            </div>
+            <button className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+              </svg>
+              Advanced Filters
             </button>
           </div>
         </div>
       </div>
 
-      {/* Success Message */}
-      {successMessage && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
-          <div className="bg-green-50 border border-green-200 rounded-md p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg
-                  className="h-5 w-5 text-green-400"
-                  fill="currentColor"
-                  viewBox="0 0 20 20"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </div>
-              <div className="ml-3">
-                <p className="text-sm font-medium text-green-800">{successMessage}</p>
-              </div>
-              <div className="ml-auto pl-3">
-                <button
-                  onClick={() => setSuccessMessage('')}
-                  className="text-green-400 hover:text-green-600"
-                >
-                  <span className="sr-only">Dismiss</span>
-                  <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Error Message */}
+      {/* Messages */}
       {error && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
-          <div className="bg-red-50 border border-red-200 rounded-md p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg
-                  className="h-5 w-5 text-red-400"
-                  fill="currentColor"
-                  viewBox="0 0 20 20"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                    clipRule="evenodd"
-                  />
-                </svg>
+        <div className="max-w-7xl mx-auto px-6 pt-4">
+          <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded">
+            <div className="flex items-start">
+              <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 mr-3" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-red-800">Connection Error</p>
+                <p className="text-sm text-red-700 mt-1">{error}</p>
+                <p className="text-xs text-red-600 mt-2">Please ensure the backend server is running on port 8000</p>
               </div>
-              <div className="ml-3">
-                <p className="text-sm font-medium text-red-800">{error}</p>
-              </div>
-              <div className="ml-auto pl-3">
-                <button
-                  onClick={() => setError('')}
-                  className="text-red-400 hover:text-red-600"
-                >
-                  <span className="sr-only">Dismiss</span>
-                  <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </button>
-              </div>
+              <button onClick={() => setError('')} className="text-red-400 hover:text-red-600">
+                <X className="w-4 h-4" />
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Template Types Grid */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {TEMPLATE_TYPES.map((type) => {
-            const typeInfo = templateTypes[type]
-            if (!typeInfo) return null
+      {successMessage && (
+        <div className="max-w-7xl mx-auto px-6 pt-4">
+          <div className="bg-green-50 border-l-4 border-green-500 p-4 rounded">
+            <div className="flex items-start">
+              <CheckCircle className="w-5 h-5 text-green-500 mt-0.5 mr-3" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-green-800">Success</p>
+                <p className="text-sm text-green-700 mt-1">{successMessage}</p>
+              </div>
+              <button onClick={() => setSuccessMessage('')} className="text-green-400 hover:text-green-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-            return (
-              <div
-                key={type}
-                className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow duration-200 overflow-hidden"
-              >
-                <div className="p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-xl font-semibold text-gray-900">
-                      {typeInfo.display_name}
-                    </h3>
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                      {type}
-                    </span>
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-6 py-6">
+        {/* Template Types Grid */}
+        <div className="mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {filteredTypes.map((type) => {
+              const typeInfo = templateTypes[type]
+              if (!typeInfo) return null
+
+              const Icon = templateIcons[type] || FileText
+              const colorClass = templateColors[type]
+
+              return (
+                <div
+                  key={type}
+                  onClick={() => handleTemplateTypeClick(type)}
+                  className="relative bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition cursor-pointer group"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className={`w-10 h-10 bg-gradient-to-br ${colorClass} rounded-lg flex items-center justify-center`}>
+                      <Icon className="w-5 h-5 text-white" />
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleCreateFromType(type)
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-pink-600 hover:bg-pink-50 rounded transition"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
                   </div>
-                  <p className="text-sm text-gray-600 mb-4 line-clamp-3">
+                  
+                  <h3 className="text-sm font-semibold text-gray-900 mb-1">
+                    {typeInfo.display_name}
+                  </h3>
+                  <p className="text-xs text-gray-500 line-clamp-2 mb-3">
                     {typeInfo.description}
                   </p>
-                  <div className="flex items-center justify-between text-sm text-gray-500 mb-4">
-                    <span>{typeInfo.required_fields.length} required fields</span>
-                    <span>{typeInfo.optional_fields.length} optional fields</span>
-                  </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => loadTemplateDetail(type)}
-                      className="flex-1 px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100"
-                    >
-                      View Details
-                    </button>
-                    <button
-                      onClick={() => startTemplateCreation(type)}
-                      className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
-                    >
-                      Create Template
-                    </button>
+                  
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-400">
+                      {typeInfo.required_fields.length} fields
+                    </span>
+                    <span className="text-pink-600 font-medium opacity-0 group-hover:opacity-100 transition">
+                      View →
+                    </span>
                   </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
+
+        {/* Created Templates Section */}
+        {createdTemplates.length > 0 && (
+          <div className="bg-white rounded-lg border border-gray-200">
+            {/* Table Header */}
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-500">
+                  Showing {filteredCreatedTemplates.length} of {createdTemplates.length} templates
+                </p>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Template Name
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Owner
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Last Updated
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {filteredCreatedTemplates.map((template) => {
+                    const Icon = templateIcons[template.contract_type?.toUpperCase()] || FileText
+                    const colorClass = templateColors[template.contract_type?.toUpperCase()] || 'from-gray-500 to-gray-600'
+                    
+                    // Status badge styling
+                    const statusStyles = {
+                      'published': 'bg-green-100 text-green-700',
+                      'active': 'bg-green-100 text-green-700',
+                      'draft': 'bg-yellow-100 text-yellow-700',
+                      'review': 'bg-orange-100 text-orange-700',
+                      'expired': 'bg-red-100 text-red-700',
+                      'archived': 'bg-gray-100 text-gray-700',
+                    }
+                    
+                    return (
+                      <tr key={template.id} className="hover:bg-gray-50 transition">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 bg-gradient-to-br ${colorClass} rounded flex items-center justify-center flex-shrink-0`}>
+                              <Icon className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">{template.name}</div>
+                              <div className="text-xs text-gray-500">
+                                ID: {template.id?.toString().substring(0, 8)}...
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            statusStyles[template.status as keyof typeof statusStyles] || statusStyles.draft
+                          }`}>
+                            {template.status || 'Draft'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 bg-gray-300 rounded-full flex items-center justify-center">
+                              <Users className="w-3 h-3 text-gray-600" />
+                            </div>
+                            <span className="text-sm text-gray-900">System</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-500">
+                          {template.created_at ? new Date(template.created_at).toLocaleDateString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric', 
+                            year: 'numeric' 
+                          }) : 'N/A'}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => handlePreview(template)}
+                              className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition"
+                              title="Preview"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDownload(template)}
+                              className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded transition"
+                              title="Download"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                            <button className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded transition">
+                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                              </svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-50 transition bg-pink-500 text-white border-pink-500">
+                  1
+                </button>
+                <button className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-50 transition">
+                  2
+                </button>
+                <button className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-50 transition">
+                  3
+                </button>
+                <button className="w-8 h-8 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-50 transition">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Template Detail Modal */}
       {showDetailModal && selectedTypeDetail && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-gray-900">
-                  {selectedTypeDetail.display_name}
-                </h2>
-                <button
-                  onClick={() => setShowDetailModal(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="bg-gradient-to-r from-pink-500 to-rose-500 px-6 py-4 flex items-center justify-between text-white">
+              <div>
+                <h2 className="text-xl font-bold">{selectedTypeDetail.display_name}</h2>
+                <p className="text-pink-100 text-sm mt-1">{selectedTypeDetail.description}</p>
               </div>
-              <p className="mt-2 text-gray-600">{selectedTypeDetail.description}</p>
+              <button
+                onClick={() => setShowDetailModal(false)}
+                className="p-1.5 hover:bg-white/20 rounded transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <div className="p-6 space-y-6">
-              {/* Required Fields */}
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="mb-6">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  Contract Type
+                </h3>
+                <span className="inline-flex items-center px-3 py-1.5 rounded-md bg-pink-100 text-pink-800 text-sm font-medium">
+                  {selectedTypeDetail.contract_type}
+                </span>
+              </div>
+
+              <div className="mb-6">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
                   Required Fields ({selectedTypeDetail.required_fields.length})
                 </h3>
-                <div className="space-y-3">
-                  {selectedTypeDetail.required_fields.map((field) => (
-                    <div
-                      key={field.name}
-                      className="flex items-start space-x-3 p-3 bg-gray-50 rounded-md"
-                    >
-                      <div className="flex-shrink-0 mt-1">
-                        <svg
-                          className="h-5 w-5 text-red-500"
-                          fill="currentColor"
-                          viewBox="0 0 20 20"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900">{field.name}</p>
-                        <p className="text-sm text-gray-600">{field.description}</p>
-                        <span className="inline-block mt-1 px-2 py-1 text-xs font-medium bg-gray-200 text-gray-700 rounded">
-                          {field.type}
-                        </span>
+                <div className="space-y-2">
+                  {selectedTypeDetail.required_fields.map((field, index) => (
+                    <div key={index} className="bg-red-50 border-l-4 border-red-500 p-3 rounded">
+                      <div className="flex items-start gap-2">
+                        <span className="text-red-600 font-bold text-sm">*</span>
+                        <div className="flex-1">
+                          <div className="font-medium text-gray-900 text-sm">{field.name}</div>
+                          <div className="text-xs text-gray-600 mt-1">{field.description}</div>
+                          <div className="text-xs text-gray-500 mt-1">Type: {field.type}</div>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Optional Fields */}
               {selectedTypeDetail.optional_fields.length > 0 && (
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                <div className="mb-6">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
                     Optional Fields ({selectedTypeDetail.optional_fields.length})
                   </h3>
-                  <div className="space-y-3">
-                    {selectedTypeDetail.optional_fields.map((field) => (
-                      <div
-                        key={field.name}
-                        className="flex items-start space-x-3 p-3 bg-gray-50 rounded-md"
-                      >
-                        <div className="flex-shrink-0 mt-1">
-                          <svg
-                            className="h-5 w-5 text-gray-400"
-                            fill="currentColor"
-                            viewBox="0 0 20 20"
-                          >
-                            <path
-                              fillRule="evenodd"
-                              d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z"
-                              clipRule="evenodd"
-                            />
-                          </svg>
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-medium text-gray-900">{field.name}</p>
-                          <p className="text-sm text-gray-600">{field.description}</p>
-                          <span className="inline-block mt-1 px-2 py-1 text-xs font-medium bg-gray-200 text-gray-700 rounded">
-                            {field.type}
-                          </span>
-                        </div>
+                  <div className="space-y-2">
+                    {selectedTypeDetail.optional_fields.map((field, index) => (
+                      <div key={index} className="bg-blue-50 border-l-4 border-blue-500 p-3 rounded">
+                        <div className="font-medium text-gray-900 text-sm">{field.name}</div>
+                        <div className="text-xs text-gray-600 mt-1">{field.description}</div>
+                        <div className="text-xs text-gray-500 mt-1">Type: {field.type}</div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Mandatory Clauses */}
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                  Mandatory Clauses ({selectedTypeDetail.mandatory_clauses.length})
-                </h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {selectedTypeDetail.mandatory_clauses.map((clause) => (
-                    <div
-                      key={clause}
-                      className="px-3 py-2 bg-blue-50 text-blue-700 rounded-md text-sm font-medium"
-                    >
-                      {clause}
-                    </div>
-                  ))}
+              {selectedTypeDetail.mandatory_clauses.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                    Mandatory Clauses ({selectedTypeDetail.mandatory_clauses.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {selectedTypeDetail.mandatory_clauses.map((clause, index) => (
+                      <div key={index} className="bg-green-50 border-l-4 border-green-500 p-3 rounded">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="w-4 h-4 text-green-600" />
+                          <span className="text-gray-900 font-medium text-sm">{clause}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
-            <div className="p-6 border-t border-gray-200 flex justify-between">
-              <button
-                onClick={() => setShowDetailModal(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-              >
-                Close
-              </button>
+            <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 flex gap-3">
               <button
                 onClick={() => {
-                  setShowDetailModal(false)
-                  if (selectedType) startTemplateCreation(selectedType)
+                  if (selectedType) handleCreateFromType(selectedType)
                 }}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
+                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-pink-500 to-rose-500 text-white rounded-lg font-medium hover:shadow-lg transition flex items-center justify-center gap-2"
               >
+                <Plus className="w-4 h-4" />
                 Create Template
+              </button>
+              <button
+                onClick={() => setShowDetailModal(false)}
+                className="px-4 py-2.5 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition"
+              >
+                Close
               </button>
             </div>
           </div>
@@ -573,196 +687,227 @@ export default function TemplatesPageNew() {
       )}
 
       {/* Create Template Modal */}
-      {showCreateModal && selectedTypeDetail && selectedType && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-2xl font-bold text-gray-900">
-                Create {selectedTypeDetail.display_name}
-              </h2>
-              <p className="mt-2 text-sm text-gray-600">
-                Fill in the required information to create your template
-              </p>
+      {showCreateModal && selectedType && selectedTypeDetail && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="bg-gradient-to-r from-pink-500 to-rose-500 px-6 py-4 flex items-center justify-between text-white">
+              <div>
+                <h2 className="text-xl font-bold">Create {selectedTypeDetail.display_name}</h2>
+                <p className="text-pink-100 text-sm mt-1">Fill in the required information</p>
+              </div>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="p-1.5 hover:bg-white/20 rounded transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <form onSubmit={handleCreateTemplate} className="p-6 space-y-6">
-              {/* Template Metadata */}
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Template Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., Acme-Tech NDA"
-                    required
-                  />
-                </div>
+            <form onSubmit={handleCreateTemplate} className="flex-1 overflow-y-auto p-6">
+              <div className="mb-6">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Basic Information</h3>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      Template Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                      placeholder="e.g., Standard NDA Template"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description
-                  </label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    rows={3}
-                    placeholder="Brief description of this template"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      Description
+                    </label>
+                    <textarea
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      rows={3}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent resize-none"
+                      placeholder="Brief description of this template..."
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Status
-                  </label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) =>
-                      setFormData({ ...formData, status: e.target.value as 'draft' | 'published' })
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="draft">Draft</option>
-                    <option value="published">Published</option>
-                  </select>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                      Status <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={formData.status}
+                      onChange={(e) => setFormData({ ...formData, status: e.target.value as 'draft' | 'published' })}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                    >
+                      <option value="draft">Draft</option>
+                      <option value="published">Published</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              {/* Required Fields */}
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Required Fields</h3>
+              <div className="mb-6">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Template Data</h3>
+                
                 <div className="space-y-4">
-                  {selectedTypeDetail.required_fields.map((field) => (
-                    <div key={field.name}>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {field.name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
-                        <span className="text-red-500">*</span>
+                  {selectedTypeDetail.required_fields.map((field, index) => (
+                    <div key={index}>
+                      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                        {field.name} <span className="text-red-500">*</span>
                       </label>
-                      <p className="text-xs text-gray-500 mb-1">{field.description}</p>
-                      {field.type === 'date' ? (
-                        <input
-                          type="date"
-                          value={formData.data[field.name] || ''}
-                          onChange={(e) => updateFormDataField(field.name, e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          required
-                        />
-                      ) : field.type === 'number' ? (
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={formData.data[field.name] || ''}
-                          onChange={(e) => updateFormDataField(field.name, e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          required
-                        />
-                      ) : (
-                        <input
-                          type="text"
-                          value={formData.data[field.name] || ''}
-                          onChange={(e) => updateFormDataField(field.name, e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          required
-                        />
-                      )}
+                      <input
+                        type="text"
+                        required
+                        value={formData.data[field.name] || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          data: { ...formData.data, [field.name]: e.target.value }
+                        })}
+                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent"
+                        placeholder={field.description}
+                      />
+                      <p className="text-xs text-gray-500 mt-1">{field.description}</p>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Optional Fields */}
-              {selectedTypeDetail.optional_fields.length > 0 && (
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                    Optional Fields
-                  </h3>
-                  <div className="space-y-4">
-                    {selectedTypeDetail.optional_fields.map((field) => (
-                      <div key={field.name}>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {field.name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
-                        </label>
-                        <p className="text-xs text-gray-500 mb-1">{field.description}</p>
-                        {field.type === 'date' ? (
-                          <input
-                            type="date"
-                            value={formData.data[field.name] || ''}
-                            onChange={(e) => updateFormDataField(field.name, e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        ) : field.type === 'number' ? (
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={formData.data[field.name] || ''}
-                            onChange={(e) => updateFormDataField(field.name, e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        ) : (
-                          <input
-                            type="text"
-                            value={formData.data[field.name] || ''}
-                            onChange={(e) => updateFormDataField(field.name, e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        )}
+              {validationErrors.length > 0 && (
+                <div className="mb-6">
+                  <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-red-800 mb-2">Missing Required Fields:</p>
+                        <ul className="list-disc list-inside text-sm text-red-700 space-y-1">
+                          {validationErrors.map((error, index) => (
+                            <li key={index}>{error}</li>
+                          ))}
+                        </ul>
                       </div>
-                    ))}
+                    </div>
                   </div>
                 </div>
               )}
+            </form>
 
-              {/* Validation Errors */}
-              {validationErrors.length > 0 && (
-                <div className="bg-red-50 border border-red-200 rounded-md p-4">
-                  <h4 className="text-sm font-medium text-red-800 mb-2">
-                    Missing required fields:
-                  </h4>
-                  <ul className="list-disc list-inside text-sm text-red-700 space-y-1">
-                    {validationErrors.map((error, index) => (
-                      <li key={index}>{error}</li>
-                    ))}
-                  </ul>
+            <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 flex gap-3">
+              <button
+                type="submit"
+                disabled={isCreating || isValidating}
+                onClick={handleCreateTemplate}
+                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-pink-500 to-rose-500 text-white rounded-lg font-medium hover:shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isCreating ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-4 h-4" />
+                    Create Template
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(false)}
+                disabled={isCreating}
+                className="px-4 py-2.5 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preview Modal */}
+      {showPreviewModal && previewTemplate && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="bg-gradient-to-r from-pink-500 to-rose-500 px-6 py-4 flex items-center justify-between text-white">
+              <div>
+                <h2 className="text-xl font-bold">{previewTemplate.name}</h2>
+                <p className="text-pink-100 text-sm mt-1">Template Preview</p>
+              </div>
+              <button
+                onClick={() => setShowPreviewModal(false)}
+                className="p-1.5 hover:bg-white/20 rounded transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-6">
+                <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Template Information</h3>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">Type:</span>
+                      <span className="ml-2 font-medium text-gray-900">{previewTemplate.contract_type}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Status:</span>
+                      <span className={`ml-2 font-medium ${
+                        previewTemplate.status === 'published' ? 'text-green-600' : 'text-yellow-600'
+                      }`}>
+                        {previewTemplate.status}
+                      </span>
+                    </div>
+                    {previewTemplate.created_at && (
+                      <div className="col-span-2">
+                        <span className="text-gray-600">Created:</span>
+                        <span className="ml-2 font-medium text-gray-900">
+                          {new Date(previewTemplate.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
 
-              {/* Form Actions */}
-              <div className="flex justify-between pt-4 border-t border-gray-200">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCreateModal(false)
-                    setFormData({ name: '', description: '', status: 'draft', data: {} })
-                    setValidationErrors([])
-                  }}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-                  disabled={isCreating || isValidating}
-                >
-                  Cancel
-                </button>
-                <div className="flex space-x-2">
-                  <button
-                    type="button"
-                    onClick={validateTemplateData}
-                    className="px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100 disabled:opacity-50"
-                    disabled={isCreating || isValidating}
-                  >
-                    {isValidating ? 'Validating...' : 'Validate'}
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
-                    disabled={isCreating || isValidating}
-                  >
-                    {isCreating ? 'Creating...' : 'Create Template'}
-                  </button>
+                {previewTemplate.description && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900 mb-2">Description</h3>
+                    <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-4 border border-gray-200">
+                      {previewTemplate.description}
+                    </p>
+                  </div>
+                )}
+
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Template Data</h3>
+                  <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto">
+                    <pre className="text-green-400 text-xs font-mono whitespace-pre-wrap">
+                      {JSON.stringify(previewTemplate, null, 2)}
+                    </pre>
+                  </div>
                 </div>
               </div>
-            </form>
+            </div>
+
+            <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 flex gap-3">
+              <button
+                onClick={() => handleDownload(previewTemplate)}
+                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-medium hover:shadow-lg transition flex items-center justify-center gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Download Template
+              </button>
+              <button
+                onClick={() => setShowPreviewModal(false)}
+                className="px-4 py-2.5 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
