@@ -1,5 +1,7 @@
-import TemplatesPageNew from '@/app/components/TemplatesPageNew'
+'use client';
+
+import TemplateLibrary from '@/app/components/TemplateLibraryV2';
 
 export default function TemplatesPage() {
-  return <TemplatesPageNew />
+  return <TemplateLibrary />;
 }

@@ -1,10 +1,7 @@
-import SearchPage from '@/app/components/SearchPage'
+'use client';
 
-export const metadata = {
-  title: 'Search - CLM',
-  description: 'Search contracts using full-text, semantic, or advanced search',
-}
+import SearchPageV2 from '@/app/components/SearchPageV2';
 
-export default function Page() {
-  return <SearchPage />
+export default function SearchPage() {
+  return <SearchPageV2 />;
 }

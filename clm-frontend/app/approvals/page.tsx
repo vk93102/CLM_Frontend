@@ -1,10 +1,7 @@
-import ApprovalsPage from '@/app/components/ApprovalsPage'
+'use client';
 
-export const metadata = {
-  title: 'Approvals - CLM',
-  description: 'Manage contract approval requests',
-}
+import ApprovalsPageV2 from '@/app/components/ApprovalsPageV2';
 
-export default function Page() {
-  return <ApprovalsPage />
+export default function ApprovalsPage() {
+  return <ApprovalsPageV2 />;
 }
