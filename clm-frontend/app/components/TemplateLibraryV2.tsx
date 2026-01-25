@@ -102,6 +102,27 @@ const TemplateLibrary: React.FC = () => {
     load();
   }, [selectedTemplate]);
 
+  useEffect(() => {
+    // Real-time preview updates while in "Filled" mode.
+    if (!rawTemplateDoc) return;
+    if (previewMode !== 'filled') return;
+
+    const replacements: Record<string, string> = {
+      counterparty_name: form.counterparty_name,
+      effective_date: form.effective_date,
+      duration_months: form.duration_months,
+      termination_clause: form.termination_clause,
+      governing_law: form.governing_law,
+    };
+
+    let next = rawTemplateDoc;
+    Object.entries(replacements).forEach(([k, v]) => {
+      const rx = new RegExp(`\\{\\{\\s*${k}\\s*\\}\\}`, 'g');
+      next = next.replace(rx, v || `{{${k}}}`);
+    });
+    setPreviewTemplateDoc(next);
+  }, [rawTemplateDoc, form, previewMode]);
+
   const fetchTemplates = async () => {
     try {
       setLoading(true);
@@ -221,18 +242,6 @@ const TemplateLibrary: React.FC = () => {
 
   const updatePreview = () => {
     if (!rawTemplateDoc) return;
-    const replacements: Record<string, string> = {
-      '{{counterparty_name}}': form.counterparty_name,
-      '{{effective_date}}': form.effective_date,
-      '{{duration_months}}': form.duration_months,
-      '{{termination_clause}}': form.termination_clause,
-      '{{governing_law}}': form.governing_law,
-    };
-    let next = rawTemplateDoc;
-    Object.entries(replacements).forEach(([k, v]) => {
-      next = next.replaceAll(k, v || k);
-    });
-    setPreviewTemplateDoc(next);
     setPreviewMode('filled');
   };
 
@@ -495,7 +504,7 @@ const TemplateLibrary: React.FC = () => {
                   <button
                     type="button"
                     className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
-                    onClick={() => router.push(`/create-contract?template=${selectedTemplate?.id || ''}`)}
+                    onClick={() => router.push(`/create-contract?template=${encodeURIComponent(selectedTemplate?.filename || '')}`)}
                     disabled={!selectedTemplate}
                   >
                     Save Draft

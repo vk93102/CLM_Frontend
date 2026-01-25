@@ -5,12 +5,12 @@ import { useParams, useRouter } from 'next/navigation';
 import DashboardLayout from './DashboardLayout';
 import { ApiClient, Contract } from '@/app/lib/api-client';
 
-interface ClauseCard {
+type ClauseCard = {
   id: string;
-  tag: string;
-  title: string;
-  description: string;
-}
+  clause_id?: string;
+  name?: string;
+  content?: string;
+};
 
 const ContractEditorPageV2: React.FC = () => {
   const params = useParams<{ id: string }>();
@@ -20,33 +20,8 @@ const ContractEditorPageV2: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [contract, setContract] = useState<Contract | null>(null);
-
-  const clauses = useMemo<ClauseCard[]>(
-    () => [
-      {
-        id: 'confidentiality',
-        tag: 'CONFIDENTIALITY',
-        title: 'Standard Non-Disclosure',
-        description:
-          'The Receiving Party shall keep the Confidential Information strictly confidential.',
-      },
-      {
-        id: 'liability',
-        tag: 'LIABILITY',
-        title: 'Limitation of Liability',
-        description:
-          'Neither party shall be liable for indirect, incidental, or consequential damages.',
-      },
-      {
-        id: 'termination',
-        tag: 'TERMINATION',
-        title: 'Termination for Cause',
-        description:
-          'Either party may terminate this Agreement upon material breach not cured within 30 days.',
-      },
-    ],
-    []
-  );
+  const [clauses, setClauses] = useState<ClauseCard[]>([]);
+  const [clauseSearch, setClauseSearch] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -79,7 +54,47 @@ const ContractEditorPageV2: React.FC = () => {
     };
   }, [contractId]);
 
-  const title = (contract as any)?.title || (contract as any)?.name || 'Master Services Agreement – Acme Corp';
+  useEffect(() => {
+    let alive = true;
+    async function loadClauses() {
+      try {
+        const client = new ApiClient();
+        const res = await client.getClauses();
+        if (!alive) return;
+        if (res.success) {
+          const list = Array.isArray(res.data)
+            ? (res.data as any[])
+            : ((res.data as any)?.results || []);
+          setClauses(list);
+        } else {
+          setClauses([]);
+        }
+      } catch {
+        if (!alive) return;
+        setClauses([]);
+      }
+    }
+    loadClauses();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const title = (contract as any)?.title || (contract as any)?.name || 'Contract';
+  const updatedAt = (contract as any)?.updated_at ? new Date((contract as any).updated_at).toLocaleString() : null;
+  const renderedText =
+    (contract as any)?.rendered_text ||
+    (contract as any)?.metadata?.rendered_text ||
+    '';
+
+  const filteredClauses = useMemo(() => {
+    const q = clauseSearch.trim().toLowerCase();
+    if (!q) return clauses;
+    return clauses.filter((c) => {
+      const hay = `${c.clause_id || ''} ${c.name || ''} ${c.content || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [clauses, clauseSearch]);
 
   return (
     <DashboardLayout>
@@ -100,36 +115,15 @@ const ContractEditorPageV2: React.FC = () => {
             <div className="min-w-0">
               <div className="flex items-center gap-3 min-w-0">
                 <h1 className="text-xl md:text-2xl font-bold text-[#111827] truncate">{title}</h1>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span className="text-xs text-black/45 font-medium">Last edited 2m ago</span>
-                </div>
+                {updatedAt && (
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <span className="text-xs text-black/45 font-medium">Updated {updatedAt}</span>
+                  </div>
+                )}
               </div>
               <p className="text-xs text-black/40 mt-1 truncate">Contract ID: {String(contractId || '')}</p>
             </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="hidden md:flex items-center -space-x-2">
-              {['S', 'A', 'J'].map((c) => (
-                <div
-                  key={c}
-                  className="w-9 h-9 rounded-full border-2 border-[#F2F0EB] bg-white grid place-items-center text-xs font-bold text-black/60"
-                >
-                  {c}
-                </div>
-              ))}
-              <div className="w-9 h-9 rounded-full border-2 border-[#F2F0EB] bg-[#111827] grid place-items-center text-xs font-bold text-white">
-                +3
-              </div>
-            </div>
-
-            <button className="hidden sm:inline-flex bg-white border border-black/10 rounded-full px-4 py-2 text-sm font-semibold text-[#111827] shadow-sm hover:bg-black/5">
-              Save as Draft
-            </button>
-            <button className="bg-[#FF5C7A] hover:bg-[#ff4768] text-white rounded-full px-5 py-2 text-sm font-semibold shadow-sm">
-              Submit for Approval →
-            </button>
           </div>
         </div>
 
@@ -148,18 +142,27 @@ const ContractEditorPageV2: React.FC = () => {
                 <svg className="w-4 h-4 text-black/35" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
-                <input className="bg-transparent outline-none text-sm w-full" placeholder="Search clauses..." />
+                <input
+                  className="bg-transparent outline-none text-sm w-full"
+                  placeholder="Search clauses..."
+                  value={clauseSearch}
+                  onChange={(e) => setClauseSearch(e.target.value)}
+                />
               </div>
             </div>
 
             <div className="p-4 space-y-4">
-              {clauses.map((c) => (
-                <div key={c.id} className="rounded-2xl border border-black/5 bg-[#F6F3ED] p-4">
-                  <p className="text-[10px] tracking-wider font-bold text-[#FF5C7A]">{c.tag}</p>
-                  <p className="text-sm font-semibold text-[#111827] mt-1">{c.title}</p>
-                  <p className="text-xs text-black/45 mt-2 leading-relaxed">{c.description}</p>
-                </div>
-              ))}
+              {filteredClauses.length === 0 ? (
+                <div className="text-sm text-black/45 p-2">No clauses available.</div>
+              ) : (
+                filteredClauses.slice(0, 20).map((c) => (
+                  <div key={c.id} className="rounded-2xl border border-black/5 bg-[#F6F3ED] p-4">
+                    <p className="text-[10px] tracking-wider font-bold text-[#FF5C7A]">{c.clause_id || 'CLAUSE'}</p>
+                    <p className="text-sm font-semibold text-[#111827] mt-1">{c.name || 'Untitled clause'}</p>
+                    {c.content && <p className="text-xs text-black/45 mt-2 leading-relaxed line-clamp-3">{c.content}</p>}
+                  </div>
+                ))
+              )}
             </div>
           </aside>
 
@@ -188,30 +191,12 @@ const ContractEditorPageV2: React.FC = () => {
             <div className="px-10 py-10 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 260px)' }}>
               {loading ? (
                 <div className="text-sm text-black/45">Loading contract…</div>
+              ) : renderedText ? (
+                <pre className="whitespace-pre-wrap text-[13px] leading-6 text-slate-900 font-serif">
+                  {renderedText}
+                </pre>
               ) : (
-                <div className="prose prose-sm max-w-none">
-                  <h2 className="text-center">MASTER SERVICES AGREEMENT</h2>
-                  <p>
-                    This Master Services Agreement (“Agreement”) is entered into as of May 24, 2024 (the
-                    “Effective Date”), by and between Acme Corporation, a Delaware corporation with its
-                    principal place of business at 123 Tech Way, San Francisco, CA (“Client”), and
-                    Services Inc., a New York corporation (“Provider”).
-                  </p>
-                  <h3>1. SERVICES</h3>
-                  <p>
-                    The services to be performed shall be set forth in one or more Statements of Work
-                    (“SOW”) executed by the parties. Each SOW shall be governed by the terms and
-                    conditions of this Agreement.
-                  </p>
-                  <h3>2. COMPENSATION</h3>
-                  <p>
-                    Client shall pay Provider the fees set forth in each SOW. Unless otherwise specified,
-                    all fees are due and payable within thirty (30) days of the date of Provider’s invoice.
-                  </p>
-                  <p className="text-black/40">
-                    {(contract as any)?.content ? 'Loaded contract content from API.' : 'Showing template content.'}
-                  </p>
-                </div>
+                <div className="text-sm text-black/45">No rendered content available for this contract.</div>
               )}
             </div>
           </section>
@@ -222,62 +207,8 @@ const ContractEditorPageV2: React.FC = () => {
               <div className="px-6 pt-6 pb-4 border-b border-black/5">
                 <p className="text-sm font-semibold text-[#111827]">Collaboration</p>
               </div>
-
-              <div className="p-5 space-y-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-9 h-9 rounded-full bg-[#F6F3ED] border border-black/5 grid place-items-center text-xs font-bold text-black/60">
-                    S
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-[#111827]">Sarah Miller</p>
-                      <p className="text-xs text-black/35">10:45 AM</p>
-                    </div>
-                    <p className="text-xs text-black/55 mt-1 leading-relaxed">
-                      Should we increase the payment term to 45 days for this specific vendor?
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="w-9 h-9 rounded-full bg-[#FFEDF1] border border-black/5 grid place-items-center text-xs font-bold text-[#FF5C7A]">
-                    Y
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-[#111827]">You</p>
-                      <p className="text-xs text-black/35">10:48 AM</p>
-                    </div>
-                    <p className="text-xs text-black/55 mt-1 leading-relaxed">
-                      Acme normally insists on 30. Let’s check with finance first.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl bg-[#FFF6E7] border border-orange-100 p-4">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-orange-400" />
-                    <p className="text-xs font-bold text-orange-700">PENDING TASK</p>
-                  </div>
-                  <p className="text-xs text-black/60 mt-2">
-                    Add Exhibit B (Pricing) before submission.
-                  </p>
-                  <button className="mt-3 text-[11px] font-semibold text-orange-700 hover:text-orange-800">
-                    MARK AS DONE
-                  </button>
-                </div>
-
-                <div className="pt-2">
-                  <div className="flex items-center gap-2 bg-[#F6F3ED] rounded-full px-4 py-2">
-                    <input className="bg-transparent outline-none text-sm w-full" placeholder="Write a comment..." />
-                    <button className="w-9 h-9 rounded-full bg-[#FF5C7A] text-white grid place-items-center">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M22 2L11 13" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M22 2l-7 20-4-9-9-4 20-7z" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
+              <div className="p-5">
+                <div className="text-sm text-black/45">No collaboration activity yet.</div>
               </div>
             </div>
           </aside>

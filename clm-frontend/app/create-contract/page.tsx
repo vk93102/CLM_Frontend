@@ -3,33 +3,18 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../lib/auth-context';
-import { ApiClient } from '../lib/api-client';
+import { ApiClient, FileTemplateItem } from '../lib/api-client';
+import DashboardLayout from '../components/DashboardLayout';
 
 // Types
-interface Template {
-  id: string;
-  name: string;
-  contract_type?: string;
-  description?: string;
-}
-
-interface Clause {
-  id: string;
-  clause_id: string;
-  name: string;
-  contract_type?: string;
-  content: string;
-  is_mandatory?: boolean;
-}
+type Template = FileTemplateItem;
 
 const CreateContractInner = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [clauses, setClauses] = useState<Clause[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
-  const [selectedClauses, setSelectedClauses] = useState<string[]>([]);
   const [contractTitle, setContractTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,56 +26,31 @@ const CreateContractInner = () => {
   }, [user]);
 
   useEffect(() => {
-    const templateId = searchParams.get('template');
-    if (templateId) {
-      setSelectedTemplate(templateId);
-    }
+    const filename = searchParams.get('template');
+    if (filename) setSelectedTemplate(filename);
   }, [searchParams]);
 
   const fetchData = async () => {
     try {
       const client = new ApiClient();
-      const [templatesResponse, clausesResponse] = await Promise.all([
-        client.getTemplates(),
-        client.getClauses(),
-      ]);
+      const templatesResponse = await client.listTemplateFiles();
 
       if (!templatesResponse.success) {
         setError(templatesResponse.error || 'Failed to load templates');
         setTemplates([]);
       } else {
-        const templateList = Array.isArray(templatesResponse.data)
-          ? templatesResponse.data
-          : (templatesResponse.data as any)?.results || [];
+        const templateList = (templatesResponse.data as any)?.results || [];
         setTemplates(templateList);
 
         const templateFromQuery = searchParams.get('template');
         if (!templateFromQuery && templateList.length > 0) {
-          setSelectedTemplate(templateList[0].id);
+          setSelectedTemplate(templateList[0].filename);
         }
-      }
-
-      if (!clausesResponse.success) {
-        setError((prev) => prev || clausesResponse.error || 'Failed to load clauses');
-        setClauses([]);
-      } else {
-        const clauseList = Array.isArray(clausesResponse.data)
-          ? clausesResponse.data
-          : (clausesResponse.data as any)?.results || [];
-        setClauses(clauseList);
       }
     } catch (err) {
       console.error('Failed to fetch data:', err);
       setError('Failed to load templates');
     }
-  };
-
-  const handleClauseToggle = (clauseId: string) => {
-    setSelectedClauses(prev =>
-      prev.includes(clauseId)
-        ? prev.filter(id => id !== clauseId)
-        : [...prev, clauseId]
-    );
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -110,10 +70,10 @@ const CreateContractInner = () => {
 
     try {
       const client = new ApiClient();
-      const response = await client.generateContract({
-        templateId: selectedTemplate,
+      const response = await client.generateContractFromFile({
+        filename: selectedTemplate,
         title: contractTitle,
-        selectedClauses,
+        selectedClauses: [],
         structuredInputs: {},
       });
 
@@ -136,23 +96,21 @@ const CreateContractInner = () => {
     }
   };
 
-  const selectedTemplateObj = templates.find((t) => t.id === selectedTemplate) || null;
-  const visibleClauses = selectedTemplateObj?.contract_type
-    ? clauses.filter((c) => c.contract_type === selectedTemplateObj.contract_type)
-    : clauses;
+  const selectedTemplateObj = templates.find((t) => t.filename === selectedTemplate) || null;
 
   return (
-    <div className="min-h-screen bg-[#F2F0EB] p-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-3xl font-bold text-[#2D3748]">Create New Contract</h1>
-          <button
-            onClick={() => router.push('/')}
-            className="px-4 py-2 text-gray-600 hover:text-gray-800"
-          >
-            ← Back to Dashboard
-          </button>
-        </div>
+    <DashboardLayout>
+      <div className="min-h-screen bg-[#F2F0EB] p-8">
+        <div className="max-w-4xl mx-auto">
+          <div className="flex items-center justify-between mb-8">
+            <h1 className="text-3xl font-bold text-[#2D3748]">Create New Contract</h1>
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="px-4 py-2 text-gray-600 hover:text-gray-800"
+            >
+              ← Back to Dashboard
+            </button>
+          </div>
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-6 py-4 rounded-2xl mb-6">
@@ -160,7 +118,7 @@ const CreateContractInner = () => {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-8">
+          <form onSubmit={handleSubmit} className="space-y-8">
           {/* Contract Title */}
           <div className="bg-white p-6 rounded-[20px] shadow-sm">
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -177,15 +135,15 @@ const CreateContractInner = () => {
           </div>
 
           {/* Template Selection */}
-          <div className="bg-white p-6 rounded-[20px] shadow-sm">
-            <h3 className="text-lg font-semibold text-[#2D3748] mb-4">Select Template</h3>
+            <div className="bg-white p-6 rounded-[20px] shadow-sm">
+              <h3 className="text-lg font-semibold text-[#2D3748] mb-4">Select Template</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {templates.map((template) => (
                 <div
-                  key={template.id}
-                  onClick={() => setSelectedTemplate(template.id)}
+                  key={template.filename}
+                  onClick={() => setSelectedTemplate(template.filename)}
                   className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                    selectedTemplate === template.id
+                    selectedTemplate === template.filename
                       ? 'border-indigo-500 bg-indigo-50'
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
@@ -194,61 +152,22 @@ const CreateContractInner = () => {
                   {template.description && (
                     <p className="text-sm text-gray-600 mt-1">{template.description}</p>
                   )}
+                  <p className="text-xs text-gray-500 mt-2">{template.filename}</p>
                 </div>
               ))}
             </div>
             {templates.length === 0 && (
               <p className="text-gray-500 text-center py-8">No templates available</p>
             )}
-          </div>
-
-          {/* Clause Selection */}
-          <div className="bg-white p-6 rounded-[20px] shadow-sm">
-            <h3 className="text-lg font-semibold text-[#2D3748] mb-4">Select Clauses</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {visibleClauses.map((clause) => (
-                <div
-                  key={clause.id}
-                  className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                    selectedClauses.includes(clause.clause_id)
-                      ? 'border-indigo-500 bg-indigo-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                  onClick={() => handleClauseToggle(clause.clause_id)}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h4 className="font-medium text-[#2D3748]">{clause.name}</h4>
-                      <p className="text-xs text-gray-500 mt-1">{clause.clause_id}</p>
-                      <p className="text-sm text-gray-600 mt-1 line-clamp-2">{clause.content}</p>
-                    </div>
-                    <div className={`w-5 h-5 rounded border-2 ml-3 mt-1 ${
-                      selectedClauses.includes(clause.clause_id)
-                        ? 'bg-indigo-500 border-indigo-500'
-                        : 'border-gray-300'
-                    }`}>
-                      {selectedClauses.includes(clause.clause_id) && (
-                        <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
             </div>
-            {visibleClauses.length === 0 && (
-              <p className="text-gray-500 text-center py-8">No clauses available</p>
-            )}
-          </div>
 
           {/* Submit Button */}
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={loading}
-              className="bg-[#0F141F] text-white px-8 py-4 rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={loading || !selectedTemplateObj}
+                className="bg-[#0F141F] text-white px-8 py-4 rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
               {loading ? (
                 <>
                   <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -265,11 +184,12 @@ const CreateContractInner = () => {
                   Create Contract
                 </>
               )}
-            </button>
-          </div>
-        </form>
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
+    </DashboardLayout>
   );
 };
 

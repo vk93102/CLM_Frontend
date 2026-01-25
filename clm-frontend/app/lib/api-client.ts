@@ -52,6 +52,12 @@ export interface ContractGenerateResponse {
   validation_errors: any[]
 }
 
+export interface ContractGenerateFromFileResponse {
+  contract: any
+  rendered_text: string
+  raw_text: string
+}
+
 export interface TemplateFileResponse {
   success: boolean
   template_type: string
@@ -276,6 +282,22 @@ export class ApiClient {
   }): Promise<ApiResponse<ContractGenerateResponse>> {
     return this.request('POST', `${ApiClient.API_V1_PREFIX}/contracts/generate/`, {
       template_id: params.templateId,
+      structured_inputs: params.structuredInputs || {},
+      user_instructions: params.userInstructions,
+      title: params.title,
+      selected_clauses: params.selectedClauses || [],
+    })
+  }
+
+  async generateContractFromFile(params: {
+    filename: string
+    structuredInputs?: Record<string, any>
+    userInstructions?: string
+    title?: string
+    selectedClauses?: string[]
+  }): Promise<ApiResponse<ContractGenerateFromFileResponse>> {
+    return this.request('POST', `${ApiClient.API_V1_PREFIX}/contracts/generate-from-file/`, {
+      filename: params.filename,
       structured_inputs: params.structuredInputs || {},
       user_instructions: params.userInstructions,
       title: params.title,
