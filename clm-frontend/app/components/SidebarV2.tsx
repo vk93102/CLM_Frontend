@@ -9,6 +9,7 @@ import {
   BarChart3,
   CalendarDays,
   CheckSquare,
+  FileCheck2,
   FileText,
   Files,
   LayoutGrid,
@@ -82,6 +83,12 @@ const SidebarV2: React.FC<SidebarV2Props> = ({ mobileOpen = false, onMobileOpenC
       activePaths: ['/uploads'],
     },
     {
+      name: 'Review',
+      href: '/review',
+      icon: <FileCheck2 className="w-5 h-5" />,
+      activePaths: ['/review', '/review/'],
+    },
+    {
       name: 'Calendar',
       href: '/calendar',
       icon: <CalendarDays className="w-5 h-5" />,
@@ -102,8 +109,12 @@ const SidebarV2: React.FC<SidebarV2Props> = ({ mobileOpen = false, onMobileOpenC
   ];
 
   const isActive = (navItem: NavItem): boolean => {
-    if (navItem.activePaths?.includes(pathname)) {
-      return true;
+    const paths = navItem.activePaths || [];
+    for (const p of paths) {
+      if (!p) continue;
+      if (p === pathname) return true;
+      // Treat paths ending with '/' as prefix matches for dynamic routes.
+      if (p.endsWith('/') && pathname.startsWith(p)) return true;
     }
     return false;
   };

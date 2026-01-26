@@ -198,6 +198,37 @@ export interface PrivateUploadUrlResponse {
   expires_in: number
 }
 
+export type ReviewContractStatus = 'uploaded' | 'processing' | 'ready' | 'failed'
+
+export interface ReviewContractListItem {
+  id: string
+  title: string
+  original_filename: string
+  file_type: string
+  size_bytes: number
+  status: ReviewContractStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface ReviewContractDetail extends ReviewContractListItem {
+  r2_key: string
+  error_message?: string | null
+  analysis?: any
+  review_text?: string
+}
+
+export interface ReviewContractsListResponse {
+  count: number
+  results: ReviewContractListItem[]
+}
+
+export interface ReviewContractUrlResponse {
+  success: boolean
+  url: string
+  expires_in: number
+}
+
 export interface CalendarEvent {
   id: string
   title: string
@@ -551,6 +582,223 @@ export class ApiClient {
     return this.request('PATCH', `${ApiClient.API_V1_PREFIX}/contracts/${id}/content/`, data)
   }
 
+  async streamContractAiGenerate(
+    id: string,
+    payload: { prompt: string; current_text?: string },
+    handlers: {
+      onDelta: (delta: string) => void
+      onDone?: () => void
+      onError?: (error: string) => void
+      signal?: AbortSignal
+    }
+  ): Promise<void> {
+    this.loadTokens()
+    if (!this.token) {
+      handlers.onError?.('Not authenticated')
+      return
+    }
+
+    const doFetch = async () =>
+      fetch(`${this.baseUrl}${ApiClient.API_V1_PREFIX}/contracts/${id}/ai/generate-stream/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+        signal: handlers.signal,
+      })
+
+    let response = await doFetch()
+    if (response.status === 401) {
+      const ok = await this.refreshAccessToken()
+      if (ok) {
+        response = await doFetch()
+      }
+    }
+
+    if (!response.ok || !response.body) {
+      const text = await response.text().catch(() => '')
+      handlers.onError?.(text || `Request failed (${response.status})`)
+      return
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+
+    let buffer = ''
+    const handleFrame = (frame: string) => {
+      // SSE frame is a set of lines terminated by a blank line.
+      // We care about: event: <name> and data: <json>
+      const lines = frame.split(/\r?\n/)
+      let eventName = 'message'
+      const dataLines: string[] = []
+      for (const line of lines) {
+        if (line.startsWith('event:')) eventName = line.slice(6).trim()
+        if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
+      }
+      const dataStr = dataLines.join('\n')
+      if (!dataStr) return
+
+      if (eventName === 'delta') {
+        try {
+          const obj = JSON.parse(dataStr)
+          const delta = String(obj?.delta || '')
+          if (delta) handlers.onDelta(delta)
+        } catch {
+          // Fallback: treat as raw
+          handlers.onDelta(dataStr)
+        }
+        return
+      }
+
+      if (eventName === 'done') {
+        handlers.onDone?.()
+        return
+      }
+
+      if (eventName === 'error') {
+        try {
+          const obj = JSON.parse(dataStr)
+          handlers.onError?.(String(obj?.error || 'Unknown error'))
+        } catch {
+          handlers.onError?.(dataStr)
+        }
+      }
+    }
+
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+
+      // Split on blank line delimiter. Keep any remainder.
+      while (true) {
+        const idx = buffer.indexOf('\n\n')
+        if (idx === -1) break
+        const frame = buffer.slice(0, idx)
+        buffer = buffer.slice(idx + 2)
+        if (frame.trim()) handleFrame(frame)
+      }
+    }
+
+    // Handle trailing frame if present.
+    if (buffer.trim()) handleFrame(buffer)
+  }
+
+  async streamTemplateAiGenerate(
+    payload: { prompt: string; current_text: string; contract_type?: string },
+    handlers: {
+      onDelta: (delta: string) => void
+      onDone?: () => void
+      onError?: (error: string) => void
+      signal?: AbortSignal
+    }
+  ): Promise<void> {
+    this.loadTokens()
+    if (!this.token) {
+      handlers.onError?.('Not authenticated')
+      return
+    }
+
+    const doFetch = async () =>
+      fetch(`${this.baseUrl}${ApiClient.API_V1_PREFIX}/ai/generate/template-stream/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+        signal: handlers.signal,
+      })
+
+    let response = await doFetch()
+    if (response.status === 401) {
+      const ok = await this.refreshAccessToken()
+      if (ok) {
+        response = await doFetch()
+      }
+    }
+
+    if (!response.ok || !response.body) {
+      const text = await response.text().catch(() => '')
+      handlers.onError?.(text || `Request failed (${response.status})`)
+      return
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    const handleFrame = (frame: string) => {
+      const lines = frame.split(/\r?\n/)
+      let eventName = 'message'
+      const dataLines: string[] = []
+      for (const line of lines) {
+        if (line.startsWith('event:')) eventName = line.slice(6).trim()
+        if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
+      }
+      const dataStr = dataLines.join('\n')
+      if (!dataStr) return
+
+      if (eventName === 'delta') {
+        try {
+          const obj = JSON.parse(dataStr)
+          const delta = String(obj?.delta || '')
+          if (delta) handlers.onDelta(delta)
+        } catch {
+          handlers.onDelta(dataStr)
+        }
+        return
+      }
+
+      if (eventName === 'done') {
+        handlers.onDone?.()
+        return
+      }
+
+      if (eventName === 'error') {
+        try {
+          const obj = JSON.parse(dataStr)
+          handlers.onError?.(String(obj?.error || 'Unknown error'))
+        } catch {
+          handlers.onError?.(dataStr)
+        }
+      }
+    }
+
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      while (true) {
+        const idx = buffer.indexOf('\n\n')
+        if (idx === -1) break
+        const frame = buffer.slice(0, idx)
+        buffer = buffer.slice(idx + 2)
+        if (frame.trim()) handleFrame(frame)
+      }
+    }
+
+    if (buffer.trim()) handleFrame(buffer)
+  }
+
+  async createContractFromContent(params: {
+    title: string
+    contract_type?: string
+    rendered_text?: string
+    rendered_html?: string
+  }): Promise<ApiResponse<any>> {
+    return this.request('POST', `${ApiClient.API_V1_PREFIX}/contracts/create-from-content/`, {
+      title: params.title,
+      contract_type: params.contract_type,
+      rendered_text: params.rendered_text,
+      rendered_html: params.rendered_html,
+    })
+  }
+
   async downloadContractTxt(id: string): Promise<ApiResponse<Blob>> {
     return this.blobRequest(`${ApiClient.API_V1_PREFIX}/contracts/${id}/download-txt/`)
   }
@@ -766,6 +1014,49 @@ export class ApiClient {
     const form = new FormData()
     form.append('file', file)
     return this.multipartRequest('POST', `${ApiClient.API_V1_PREFIX}/private-uploads/`, form)
+  }
+
+  // ==================== REVIEW CONTRACTS ====================
+  async listReviewContracts(params?: { q?: string }): Promise<ApiResponse<ReviewContractsListResponse>> {
+    const qs = params?.q ? `?q=${encodeURIComponent(params.q)}` : ''
+    return this.request('GET', `${ApiClient.API_V1_PREFIX}/review-contracts/${qs}`)
+  }
+
+  async getReviewContractById(id: string): Promise<ApiResponse<ReviewContractDetail>> {
+    return this.request('GET', `${ApiClient.API_V1_PREFIX}/review-contracts/${id}/`)
+  }
+
+  async uploadReviewContract(
+    file: File,
+    opts?: { title?: string; analyze?: boolean }
+  ): Promise<ApiResponse<{ success: boolean; review_contract: ReviewContractDetail }>> {
+    const form = new FormData()
+    form.append('file', file)
+    if (opts?.title) form.append('title', opts.title)
+    if (typeof opts?.analyze === 'boolean') form.append('analyze', String(opts.analyze))
+    return this.multipartRequest('POST', `${ApiClient.API_V1_PREFIX}/review-contracts/`, form)
+  }
+
+  async deleteReviewContract(id: string): Promise<ApiResponse<any>> {
+    return this.request('DELETE', `${ApiClient.API_V1_PREFIX}/review-contracts/${id}/`)
+  }
+
+  async getReviewContractUrl(id: string): Promise<ApiResponse<ReviewContractUrlResponse>> {
+    return this.request('GET', `${ApiClient.API_V1_PREFIX}/review-contracts/${id}/url/`)
+  }
+
+  async analyzeReviewContract(
+    id: string
+  ): Promise<ApiResponse<{ success: boolean; review_contract: ReviewContractDetail }>> {
+    return this.request('POST', `${ApiClient.API_V1_PREFIX}/review-contracts/${id}/analyze/`, {})
+  }
+
+  async downloadReviewReportTxt(id: string): Promise<ApiResponse<Blob>> {
+    return this.blobRequest(`${ApiClient.API_V1_PREFIX}/review-contracts/${id}/report-txt/`)
+  }
+
+  async downloadReviewReportPdf(id: string): Promise<ApiResponse<Blob>> {
+    return this.blobRequest(`${ApiClient.API_V1_PREFIX}/review-contracts/${id}/report-pdf/`)
   }
 
   // ==================== CALENDAR EVENTS ====================

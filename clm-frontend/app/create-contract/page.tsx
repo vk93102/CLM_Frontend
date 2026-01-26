@@ -18,6 +18,7 @@ import { Bell, ChevronLeft, ChevronRight, FileText, Search, Sparkles, Settings2,
 type Template = FileTemplateItem;
 
 type Mode = 'templates' | 'ai';
+type AiStep = 'select' | 'edit';
 
 type CustomClause = { title?: string; content: string };
 type Constraint = { name: string; value: string };
@@ -94,6 +95,17 @@ const CreateContractInner = () => {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewZoom, setPreviewZoom] = useState(1);
 
+  const [aiStep, setAiStep] = useState<AiStep>('select');
+  const [aiTitle, setAiTitle] = useState('');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiText, setAiText] = useState('');
+  const [aiTemplateQuery, setAiTemplateQuery] = useState('');
+  const [aiLoadingTemplate, setAiLoadingTemplate] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const aiAbortRef = useRef<AbortController | null>(null);
+  const aiEditorRef = useRef<HTMLDivElement | null>(null);
+
   const cardsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -114,6 +126,12 @@ const CreateContractInner = () => {
       setCustomClauses([]);
       setConstraints([]);
       setPreviewText('');
+
+      setAiStep('select');
+      setAiTitle('');
+      setAiPrompt('');
+      setAiText('');
+      setAiError(null);
       return;
     }
 
@@ -162,6 +180,133 @@ const CreateContractInner = () => {
 
     loadSchemaAndClauses();
   }, [selectedTemplate]);
+
+  // Keep the AI editor DOM in sync with aiText.
+  useEffect(() => {
+    if (mode !== 'ai') return;
+    if (aiStep !== 'edit') return;
+    if (!aiEditorRef.current) return;
+    if (!aiText) {
+      aiEditorRef.current.innerText = '';
+      return;
+    }
+    // Only update if it differs to reduce selection jumps.
+    if (aiEditorRef.current.innerText !== aiText) {
+      aiEditorRef.current.innerText = aiText;
+    }
+  }, [aiText, aiStep, mode]);
+
+  const startAiBuilder = async () => {
+    if (!selectedTemplate) return;
+    try {
+      setAiError(null);
+      setAiLoadingTemplate(true);
+      const client = new ApiClient();
+      const res = await client.getTemplateFileContent(selectedTemplate);
+      if (!res.success) {
+        setAiError(res.error || 'Failed to load template');
+        return;
+      }
+      const content = String((res.data as any)?.content || '');
+      const name = String((res.data as any)?.name || '') || String(selectedTemplate || 'Template');
+      setAiTitle(name);
+      setAiText(content);
+      setAiStep('edit');
+      // Seed prompt to help first-time users.
+      if (!aiPrompt.trim()) {
+        setAiPrompt('Rewrite the payment terms to Net 45, add a late fee clause, and tighten confidentiality to include trade secrets.');
+      }
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : 'Failed to load template');
+    } finally {
+      setAiLoadingTemplate(false);
+    }
+  };
+
+  const applyAiPrompt = async () => {
+    if (aiGenerating) return;
+    const prompt = aiPrompt.trim();
+    if (!prompt) {
+      setAiError('Please enter a prompt');
+      return;
+    }
+    const current = aiEditorRef.current?.innerText ?? aiText;
+    if (!current.trim()) {
+      setAiError('Template content is empty');
+      return;
+    }
+
+    aiAbortRef.current?.abort();
+    const aborter = new AbortController();
+    aiAbortRef.current = aborter;
+
+    try {
+      setAiError(null);
+      setAiGenerating(true);
+      let nextText = '';
+
+      const client = new ApiClient();
+      await client.streamTemplateAiGenerate(
+        {
+          prompt,
+          current_text: current,
+          contract_type: schema?.template_type || selectedTemplateObj?.contract_type,
+        },
+        {
+          signal: aborter.signal,
+          onDelta: (delta) => {
+            nextText += delta;
+            setAiText(nextText);
+          },
+          onDone: () => {
+            setAiText(nextText);
+          },
+          onError: (err) => {
+            setAiError(err || 'AI generation failed');
+          },
+        }
+      );
+    } catch (e) {
+      if ((e as any)?.name === 'AbortError') return;
+      setAiError(e instanceof Error ? e.message : 'AI generation failed');
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  const stopAi = () => {
+    aiAbortRef.current?.abort();
+    setAiGenerating(false);
+  };
+
+  const createDraftFromAi = async () => {
+    try {
+      setAiError(null);
+      setLoading(true);
+      const client = new ApiClient();
+      const renderedText = aiEditorRef.current?.innerText ?? aiText;
+      const title = (aiTitle || selectedTemplateObj?.name || 'Contract').trim();
+      const res = await client.createContractFromContent({
+        title,
+        contract_type: schema?.template_type || selectedTemplateObj?.contract_type,
+        rendered_text: renderedText,
+      });
+      if (!res.success) {
+        setAiError(res.error || 'Failed to create draft');
+        return;
+      }
+      const id = String((res.data as any)?.id || '');
+      if (!id) {
+        setAiError('Draft created but no contract id returned');
+        return;
+      }
+      router.push(`/contracts/${id}`);
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : 'Failed to create draft');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredClauses = useMemo(() => {
     const list = Array.isArray(clauses) ? clauses : [];
@@ -330,6 +475,15 @@ const CreateContractInner = () => {
     });
   }, [allTemplatesOrdered, templateQuery]);
 
+  const aiFilteredTemplates = useMemo(() => {
+    const q = aiTemplateQuery.trim().toLowerCase();
+    if (!q) return allTemplatesOrdered.slice(0, 8);
+    return allTemplatesOrdered.filter((t) => {
+      const hay = `${t.filename || ''} ${t.name || ''} ${t.description || ''} ${t.contract_type || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [allTemplatesOrdered, aiTemplateQuery]);
+
   const sections: TemplateSchemaSection[] = schema?.sections || [];
 
   const isCreateDisabled = !user || !selectedTemplateObj || loading || mode !== 'templates';
@@ -388,16 +542,228 @@ const CreateContractInner = () => {
           </div>
 
           {mode === 'ai' ? (
-            <div className="mt-8 bg-white rounded-[18px] border border-black/5 shadow-sm p-8">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#0F141F] text-white flex items-center justify-center">
-                  <Sparkles className="w-5 h-5" />
+            <div className="mt-8">
+              {aiStep === 'select' ? (
+                <div className="grid grid-cols-12 gap-6">
+                  {/* Template picker (limited width + scrollable) */}
+                  <aside className="col-span-12 lg:col-span-3 bg-white rounded-[18px] border border-black/5 shadow-sm overflow-hidden">
+                    <div className="px-6 pt-6 pb-4 border-b border-black/5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-[#0F141F] text-white flex items-center justify-center">
+                          <Sparkles className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="text-lg font-semibold text-[#0F141F]">AI Builder</div>
+                          <div className="text-xs text-[#6B7280]">Pick a template to start</div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex items-center gap-2 bg-[#F6F3ED] rounded-full px-4 py-2">
+                        <Search className="w-4 h-4 text-black/35" />
+                        <input
+                          className="bg-transparent outline-none text-sm w-full"
+                          placeholder="Search templates…"
+                          value={aiTemplateQuery}
+                          onChange={(e) => setAiTemplateQuery(e.target.value)}
+                        />
+                      </div>
+
+                      <div className="mt-3 text-[11px] text-black/45">
+                        {aiTemplateQuery.trim()
+                          ? `Showing ${aiFilteredTemplates.length} results`
+                          : 'Showing top 8 templates (search to find more)'}
+                      </div>
+                    </div>
+
+                    <div className="p-4 space-y-3 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 320px)' }}>
+                      {aiFilteredTemplates.length === 0 ? (
+                        <div className="text-sm text-black/45 p-2">No templates match your search.</div>
+                      ) : (
+                        aiFilteredTemplates.map((t) => {
+                          const isSelected = selectedTemplate === t.filename;
+                          return (
+                            <button
+                              key={t.filename}
+                              type="button"
+                              onClick={() => setSelectedTemplate(t.filename)}
+                              className={`w-full text-left rounded-2xl border p-4 transition ${
+                                isSelected
+                                  ? 'border-[#FF5C7A] bg-[#FFF1F4]'
+                                  : 'border-black/5 bg-[#F6F3ED] hover:border-black/10'
+                              }`}
+                            >
+                              <div className="text-sm font-semibold text-[#111827] truncate">{t.name || t.filename}</div>
+                              <div className="text-xs text-black/45 mt-1 line-clamp-2">{t.description || t.contract_type || ''}</div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </aside>
+
+                  {/* Main content */}
+                  <section className="col-span-12 lg:col-span-9 bg-white rounded-[18px] border border-black/5 shadow-sm p-8">
+                    <div className="flex items-center justify-between gap-4 flex-wrap">
+                      <div>
+                        <div className="text-lg font-semibold text-[#0F141F]">Get Started</div>
+                        <div className="text-sm text-[#6B7280] mt-1">Open the template in the editor and apply prompts live.</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={startAiBuilder}
+                        disabled={!selectedTemplate || aiLoadingTemplate}
+                        className="h-11 px-5 rounded-full bg-[#0F141F] text-white text-sm font-semibold disabled:opacity-60"
+                      >
+                        {aiLoadingTemplate ? 'Loading…' : 'Get Started'}
+                      </button>
+                    </div>
+
+                    {aiError ? (
+                      <div className="mt-5 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-2xl text-sm">
+                        {aiError}
+                      </div>
+                    ) : null}
+
+                    <div className="mt-6">
+                      <div className="text-sm font-semibold text-[#0F141F]">Selected Template</div>
+                      <div className="mt-3 rounded-2xl border border-black/5 bg-[#F6F3ED] p-4">
+                        <div className="text-sm font-semibold text-[#111827]">
+                          {selectedTemplateObj?.name || selectedTemplate || '—'}
+                        </div>
+                        <div className="text-xs text-black/45 mt-1">
+                          {selectedTemplateObj?.description || 'Template preview will open in the editor.'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6">
+                      <div className="text-sm font-semibold text-[#0F141F]">Prompt (optional)</div>
+                      <div className="mt-2 text-xs text-black/45">You can refine it later in the editor step.</div>
+                      <textarea
+                        value={aiPrompt}
+                        onChange={(e) => setAiPrompt(e.target.value)}
+                        placeholder="e.g., Change payment terms to Net 45, add a late fee clause, and set governing law to Delaware."
+                        className="mt-3 w-full min-h-[120px] rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#FF5C7A]/25"
+                      />
+                    </div>
+                  </section>
                 </div>
-                <div>
-                  <div className="text-lg font-semibold text-[#0F141F]">AI Builder</div>
-                  <div className="text-sm text-[#6B7280]">Coming soon. Template-based drafting is available now.</div>
+              ) : (
+                <div className="bg-[#F2F0EB]">
+                  <div className="flex items-center justify-between gap-4 mb-6">
+                    <div className="flex items-center gap-4 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          stopAi();
+                          setAiStep('select');
+                        }}
+                        className="w-10 h-10 rounded-full bg-white border border-black/10 shadow-sm grid place-items-center text-black/45 hover:text-black"
+                        aria-label="Back"
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <div className="min-w-0">
+                        <div className="text-xl md:text-2xl font-bold text-[#111827] truncate">
+                          {aiTitle || selectedTemplateObj?.name || 'AI Builder'}
+                        </div>
+                        <div className="text-xs text-black/45 mt-1 truncate">Template: {selectedTemplate || ''}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={createDraftFromAi}
+                        disabled={loading || aiGenerating || !aiText.trim()}
+                        className="h-10 px-4 rounded-full bg-white border border-black/10 text-sm font-semibold text-[#111827] hover:bg-black/5 disabled:opacity-60"
+                      >
+                        Create Draft
+                      </button>
+                    </div>
+                  </div>
+
+                  {aiError ? (
+                    <div className="mb-6 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-2xl text-sm">
+                      {aiError}
+                    </div>
+                  ) : null}
+
+                  <div className="grid grid-cols-12 gap-6">
+                    {/* Editor */}
+                    <section className="col-span-12 lg:col-span-8 bg-white rounded-[28px] border border-black/5 shadow-sm overflow-hidden">
+                      <div className="px-6 pt-5 pb-4 border-b border-black/5 flex items-center justify-between">
+                        <div className="text-sm font-semibold text-[#111827]">Template Editor</div>
+                        <div className="text-xs text-black/45">
+                          {aiGenerating ? 'Applying AI changes…' : 'Preview + edit with prompts'}
+                        </div>
+                      </div>
+
+                      <div className="px-10 py-10 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 280px)' }}>
+                        <div
+                          ref={aiEditorRef}
+                          contentEditable={!aiGenerating}
+                          suppressContentEditableWarning
+                          onInput={() => {
+                            setAiText(aiEditorRef.current?.innerText || '');
+                          }}
+                          className={`min-h-[60vh] whitespace-pre-wrap text-[13px] leading-6 text-slate-900 font-serif outline-none ${
+                            aiGenerating ? 'opacity-80' : ''
+                          }`}
+                        />
+                      </div>
+                    </section>
+
+                    {/* AI Prompt */}
+                    <aside className="col-span-12 lg:col-span-4 space-y-6">
+                      <div className="bg-white rounded-[28px] border border-black/5 shadow-sm overflow-hidden">
+                        <div className="px-6 pt-6 pb-4 border-b border-black/5">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-semibold text-[#111827]">AI Prompts</p>
+                            <span className="text-[11px] text-black/45">Streaming</span>
+                          </div>
+                          <p className="text-xs text-black/45 mt-2">
+                            Describe changes and watch them apply in real time.
+                          </p>
+                        </div>
+
+                        <div className="p-5">
+                          <textarea
+                            value={aiPrompt}
+                            onChange={(e) => setAiPrompt(e.target.value)}
+                            placeholder="e.g., Add a termination for convenience clause with 30 days notice, and update payment terms to Net 45."
+                            className="w-full min-h-[140px] rounded-2xl border border-black/10 bg-[#F6F3ED] px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#FF5C7A]/25"
+                            disabled={aiGenerating}
+                          />
+
+                          <div className="mt-4 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={applyAiPrompt}
+                              disabled={aiGenerating}
+                              className="h-10 px-4 rounded-full bg-[#0F141F] text-white text-sm font-semibold disabled:opacity-60"
+                            >
+                              {aiGenerating ? 'Generating…' : 'Apply Changes'}
+                            </button>
+                            {aiGenerating ? (
+                              <button
+                                type="button"
+                                onClick={stopAi}
+                                className="h-10 px-4 rounded-full bg-white border border-black/10 text-sm font-semibold text-[#111827] hover:bg-black/5"
+                              >
+                                Stop
+                              </button>
+                            ) : null}
+                          </div>
+
+                          <div className="mt-4 text-xs text-black/45">
+                            Tip: be specific (sections, numbers, jurisdictions).
+                          </div>
+                        </div>
+                      </div>
+                    </aside>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           ) : (
             <>

@@ -31,6 +31,13 @@ const ContractEditorPageV2: React.FC = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
 
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const aiAbortRef = useRef<AbortController | null>(null);
+  const aiTextRef = useRef<string>('');
+  const aiStartedRef = useRef<boolean>(false);
+
   const escapeHtml = (s: string) =>
     (s || '')
       .replaceAll('&', '&amp;')
@@ -170,12 +177,76 @@ const ContractEditorPageV2: React.FC = () => {
   useEffect(() => {
     if (!editorReady) return;
     if (!dirty) return;
+    if (aiGenerating) return;
     const t = window.setTimeout(() => {
       saveNow();
     }, 900);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editTick, dirty, editorReady, contractId]);
+  }, [editTick, dirty, editorReady, contractId, aiGenerating]);
+
+  const runAi = async () => {
+    if (!contractId) return;
+    if (!editorRef.current) return;
+    const prompt = aiPrompt.trim();
+    if (!prompt) return;
+
+    setAiError(null);
+    setAiGenerating(true);
+    aiTextRef.current = '';
+    aiStartedRef.current = false;
+
+    const abort = new AbortController();
+    aiAbortRef.current = abort;
+
+    try {
+      const client = new ApiClient();
+      const currentText = editorRef.current.innerText || '';
+      await client.streamContractAiGenerate(
+        contractId,
+        {
+          prompt,
+          current_text: currentText,
+        },
+        {
+          signal: abort.signal,
+          onDelta: (delta) => {
+            aiTextRef.current += delta;
+            if (!editorRef.current) return;
+            if (!aiStartedRef.current) {
+              aiStartedRef.current = true;
+              editorRef.current.innerHTML = '';
+            }
+            editorRef.current.innerHTML = textToHtml(aiTextRef.current);
+          },
+          onError: (err) => {
+            setAiError(err || 'AI generation failed');
+          },
+          onDone: () => {
+            // no-op here; we handle after await
+          },
+        }
+      );
+
+      // Mark dirty and persist once (avoid saving every streamed chunk).
+      setDirty(true);
+      setEditTick((t) => t + 1);
+      await saveNow();
+    } catch (e) {
+      if ((e as any)?.name === 'AbortError') {
+        setAiError('Generation cancelled');
+      } else {
+        setAiError(e instanceof Error ? e.message : 'AI generation failed');
+      }
+    } finally {
+      setAiGenerating(false);
+      aiAbortRef.current = null;
+    }
+  };
+
+  const cancelAi = () => {
+    aiAbortRef.current?.abort();
+  };
 
   const downloadPdf = async () => {
     if (!contractId) return;
@@ -371,13 +442,13 @@ const ContractEditorPageV2: React.FC = () => {
               ) : (
                 <div
                   ref={editorRef}
-                  contentEditable
+                  contentEditable={!aiGenerating}
                   suppressContentEditableWarning
                   onInput={() => {
                     setDirty(true);
                     setEditTick((t) => t + 1);
                   }}
-                  className="min-h-[60vh] whitespace-pre-wrap text-[13px] leading-6 text-slate-900 font-serif outline-none"
+                  className={`min-h-[60vh] whitespace-pre-wrap text-[13px] leading-6 text-slate-900 font-serif outline-none ${aiGenerating ? 'opacity-80' : ''}`}
                 />
               )}
             </div>
@@ -385,6 +456,43 @@ const ContractEditorPageV2: React.FC = () => {
 
           {/* Collaboration */}
           <aside className="col-span-12 lg:col-span-3 space-y-6">
+            <div className="bg-white rounded-[28px] border border-black/5 shadow-sm overflow-hidden">
+              <div className="px-6 pt-6 pb-4 border-b border-black/5">
+                <p className="text-sm font-semibold text-[#111827]">AI Content Generation</p>
+                <p className="text-xs text-black/45 mt-1">Type an instruction; the editor updates live.</p>
+              </div>
+              <div className="p-5">
+                <textarea
+                  className="w-full min-h-[110px] rounded-2xl bg-[#F6F3ED] border border-black/5 px-4 py-3 text-sm outline-none resize-none"
+                  placeholder="e.g. Change payment terms to Net 45, add a late fee, and update the compensation section accordingly."
+                  value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                  disabled={aiGenerating}
+                />
+
+                {aiError && <div className="text-xs text-rose-600 mt-2">{aiError}</div>}
+
+                <div className="mt-3 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={runAi}
+                    disabled={aiGenerating || !aiPrompt.trim()}
+                    className="h-10 px-4 rounded-full bg-[#FF5C7A] text-white text-sm font-semibold disabled:opacity-60"
+                  >
+                    {aiGenerating ? 'Generating…' : 'Apply to Editor'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelAi}
+                    disabled={!aiGenerating}
+                    className="h-10 px-4 rounded-full bg-white border border-black/10 text-black/70 text-sm font-semibold disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div className="bg-white rounded-[28px] border border-black/5 shadow-sm overflow-hidden">
               <div className="px-6 pt-6 pb-4 border-b border-black/5">
                 <p className="text-sm font-semibold text-[#111827]">Collaboration</p>
