@@ -11,6 +11,34 @@ export interface ApiResponse<T = any> {
   status: number
 }
 
+export type AiMode = 'rewrite' | 'suggest' | 'summarize' | 'risk_spotting'
+
+export interface AiRelevantClause {
+  clause_id: string
+  name?: string
+  similarity?: number
+}
+
+export interface AiContextEvent {
+  relevant_clauses: AiRelevantClause[]
+}
+
+export interface AiCitationsChange {
+  summary: string
+  clause_ids: string[]
+  policy_refs: string[]
+}
+
+export interface AiCitationsEvent {
+  changes: AiCitationsChange[]
+}
+
+export interface TenantAiPolicy {
+  tenant_id: string
+  scrub_pii: boolean
+  send_full_contract_text: boolean
+}
+
 export interface Contract {
   id: string
   title: string
@@ -648,9 +676,11 @@ export class ApiClient {
 
   async streamContractAiGenerate(
     id: string,
-    payload: { prompt: string; current_text?: string },
+    payload: { prompt: string; current_text?: string; mode?: AiMode; jurisdiction?: string },
     handlers: {
       onDelta: (delta: string) => void
+      onContext?: (ctx: AiContextEvent) => void
+      onCitations?: (citations: AiCitationsEvent) => void
       onDone?: () => void
       onError?: (error: string) => void
       signal?: AbortSignal
@@ -722,6 +752,26 @@ export class ApiClient {
         return
       }
 
+      if (eventName === 'context') {
+        try {
+          const obj = JSON.parse(dataStr)
+          handlers.onContext?.(obj as AiContextEvent)
+        } catch {
+          // ignore
+        }
+        return
+      }
+
+      if (eventName === 'citations') {
+        try {
+          const obj = JSON.parse(dataStr)
+          handlers.onCitations?.(obj as AiCitationsEvent)
+        } catch {
+          // ignore
+        }
+        return
+      }
+
       if (eventName === 'error') {
         try {
           const obj = JSON.parse(dataStr)
@@ -752,9 +802,11 @@ export class ApiClient {
   }
 
   async streamTemplateAiGenerate(
-    payload: { prompt: string; current_text: string; contract_type?: string },
+    payload: { prompt: string; current_text: string; contract_type?: string; mode?: AiMode; jurisdiction?: string },
     handlers: {
       onDelta: (delta: string) => void
+      onContext?: (ctx: AiContextEvent) => void
+      onCitations?: (citations: AiCitationsEvent) => void
       onDone?: () => void
       onError?: (error: string) => void
       signal?: AbortSignal
@@ -823,6 +875,26 @@ export class ApiClient {
         return
       }
 
+      if (eventName === 'context') {
+        try {
+          const obj = JSON.parse(dataStr)
+          handlers.onContext?.(obj as AiContextEvent)
+        } catch {
+          // ignore
+        }
+        return
+      }
+
+      if (eventName === 'citations') {
+        try {
+          const obj = JSON.parse(dataStr)
+          handlers.onCitations?.(obj as AiCitationsEvent)
+        } catch {
+          // ignore
+        }
+        return
+      }
+
       if (eventName === 'error') {
         try {
           const obj = JSON.parse(dataStr)
@@ -869,6 +941,25 @@ export class ApiClient {
 
   async downloadContractPdf(id: string): Promise<ApiResponse<Blob>> {
     return this.blobRequest(`${ApiClient.API_V1_PREFIX}/contracts/${id}/download-pdf/`)
+  }
+
+  async getTenantAiPolicy(): Promise<ApiResponse<TenantAiPolicy>> {
+    return this.request('GET', `${ApiClient.API_V1_PREFIX}/ai/policy/`)
+  }
+
+  async updateTenantAiPolicy(patch: Partial<Pick<TenantAiPolicy, 'scrub_pii' | 'send_full_contract_text'>>): Promise<ApiResponse<TenantAiPolicy>> {
+    return this.request('PUT', `${ApiClient.API_V1_PREFIX}/ai/policy/`, patch)
+  }
+
+  async submitAiFeedback(payload: {
+    feature: string
+    helpful: boolean
+    mode?: string
+    prompt?: string
+    contract_type?: string
+    metadata?: Record<string, any>
+  }): Promise<ApiResponse<{ id: string }>> {
+    return this.request('POST', `${ApiClient.API_V1_PREFIX}/ai/feedback/`, payload)
   }
 
   async deleteContract(id: string): Promise<ApiResponse> {
