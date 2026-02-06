@@ -256,6 +256,18 @@ export interface FirmaUploadResponse {
   message?: string
 }
 
+export interface FirmaSigningRequestDetailsResponse {
+  success: boolean
+  contract_id: string
+  signing_request: any
+}
+
+export interface FirmaRemindersResponse {
+  success: boolean
+  contract_id: string
+  reminders: any
+}
+
 export interface FirmaSendResponse {
   success: boolean
   contract_id: string
@@ -1221,6 +1233,120 @@ export class ApiClient {
 
   async firmaDownloadExecutedPdf(contractId: string): Promise<ApiResponse<Blob>> {
     return this.blobRequest(`${ApiClient.API_V1_PREFIX}/firma/esign/executed/${contractId}/`)
+  }
+
+  async firmaDetails(contractId: string): Promise<ApiResponse<FirmaSigningRequestDetailsResponse>> {
+    return this.request('GET', `${ApiClient.API_V1_PREFIX}/firma/esign/details/${contractId}/`)
+  }
+
+  async firmaReminders(contractId: string): Promise<ApiResponse<FirmaRemindersResponse>> {
+    return this.request('GET', `${ApiClient.API_V1_PREFIX}/firma/esign/reminders/${contractId}/`)
+  }
+
+  /**
+   * Authenticated SSE stream used for near-real-time notifications.
+   * This uses `fetch()` streaming instead of `EventSource` so we can send Authorization headers.
+   */
+  firmaWebhookStream(
+    contractId: string,
+    handlers: {
+      onEvent: (evt: { event?: string; data?: any; raw?: string }) => void
+      onReady?: () => void
+      onError?: (err: any) => void
+      signal?: AbortSignal
+    }
+  ): { close: () => void } {
+    const controller = new AbortController()
+    const signal = handlers.signal || controller.signal
+
+    const run = async (allowRetry: boolean) => {
+      try {
+        this.loadTokens()
+        const headers: Record<string, string> = {}
+        if (this.token) headers['Authorization'] = `Bearer ${this.token}`
+
+        const res = await fetch(`${this.baseUrl}${ApiClient.API_V1_PREFIX}/firma/webhooks/stream/${contractId}/`, {
+          method: 'GET',
+          headers,
+          credentials: 'include',
+          signal,
+        })
+
+        if (res.status === 401 && allowRetry) {
+          const refreshed = await this.refreshAccessToken()
+          if (refreshed) return run(false)
+        }
+
+        if (!res.ok || !res.body) {
+          throw new Error(`Stream failed: HTTP ${res.status}`)
+        }
+
+        handlers.onReady?.()
+
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder('utf-8')
+        let buffer = ''
+
+        const flushChunk = (chunk: string) => {
+          const lines = chunk.split('\n')
+          let evtName: string | undefined
+          const dataLines: string[] = []
+
+          for (const line of lines) {
+            if (!line || line.startsWith(':')) continue
+            if (line.startsWith('event:')) {
+              evtName = line.slice('event:'.length).trim()
+              continue
+            }
+            if (line.startsWith('data:')) {
+              dataLines.push(line.slice('data:'.length).trim())
+              continue
+            }
+          }
+
+          const rawData = dataLines.join('\n').trim()
+          if (!rawData) return
+
+          let parsed: any = rawData
+          try {
+            parsed = JSON.parse(rawData)
+          } catch {
+            // keep as string
+          }
+
+          handlers.onEvent({ event: evtName, data: parsed, raw: rawData })
+        }
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+
+          let idx = buffer.indexOf('\n\n')
+          while (idx >= 0) {
+            const chunk = buffer.slice(0, idx)
+            buffer = buffer.slice(idx + 2)
+            flushChunk(chunk)
+            idx = buffer.indexOf('\n\n')
+          }
+        }
+      } catch (e) {
+        if ((e as any)?.name === 'AbortError') return
+        handlers.onError?.(e)
+      }
+    }
+
+    void run(true)
+
+    return {
+      close: () => {
+        try {
+          controller.abort()
+        } catch {
+          // ignore
+        }
+      },
+    }
   }
 
   /**

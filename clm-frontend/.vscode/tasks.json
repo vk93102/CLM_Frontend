@@ -1,0 +1,24 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "patch-contract-editor-v2",
+			"type": "shell",
+			"command": "python3",
+			"args": [
+				"/Users/vishaljha/Desktop/SK/tools/patch_contract_editor_v2.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "frontend-build",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"build"
+			],
+			"isBackground": false
+		}
+	]
+}

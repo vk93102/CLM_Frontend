@@ -815,6 +815,10 @@ const ContractEditorPageV2: React.FC = () => {
       setPollError(null);
       const client = new ApiClient();
 
+
+        // Firma's multi-signer flow is always invite-all (parallel). Keep UI state for SignNow.
+        const effectiveSigningOrder = signProvider === 'firma' ? 'parallel' : signingOrder;
+
       // Firma: open template-level placer first (when this contract is based on a file-template)
       if (signProvider === 'firma') {
         const templateFilename =
@@ -866,7 +870,7 @@ const ContractEditorPageV2: React.FC = () => {
           pendingFirmaStartRef.current = {
             contract_id: contractId,
             signers: cleaned,
-            signing_order: signingOrder,
+            signing_order: effectiveSigningOrder,
           };
           setPlacerTemplateFilename(templateFilename);
           setPlacerPdfUrl(url);
@@ -881,12 +885,12 @@ const ContractEditorPageV2: React.FC = () => {
           ? await client.firmaStart({
               contract_id: contractId,
               signers: cleaned,
-              signing_order: signingOrder,
+              signing_order: effectiveSigningOrder,
             })
           : await client.esignStart({
               contract_id: contractId,
               signers: cleaned,
-              signing_order: signingOrder,
+              signing_order: effectiveSigningOrder,
             });
       if (!res.success) {
         setSignError(res.error || 'Failed to start signing');
@@ -1343,7 +1347,7 @@ const ContractEditorPageV2: React.FC = () => {
                 </div>
 
                 <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-semibold text-[#111827]">Signing order</div>
+                  <div className="text-sm font-semibold text-[#111827]">Provider</div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
