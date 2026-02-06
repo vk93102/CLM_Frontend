@@ -1178,6 +1178,10 @@ export class ApiClient {
     })
   }
 
+  /**
+   * Single-call, reliable multi-signer flow.
+   * Backend will regenerate/upload with all recipients and invite everyone at once.
+   */
   async firmaInviteAll(params: {
     contract_id: string
     signers: EsignSigner[]
@@ -1185,13 +1189,15 @@ export class ApiClient {
     document_name?: string
   }): Promise<
     ApiResponse<{
-      signing_url?: string
-      signer_email?: string
-      emails_sent?: number
-      email_failures?: Array<{ email: string; error: string }>
+      success: boolean
+      contract_id: string
       firma_document_id?: string
       status?: string
       signers_invited?: number
+      emails_sent?: number
+      email_failures?: Array<{ email: string; error: string }>
+      signing_url?: string | null
+      signer_email?: string
     }>
   > {
     return this.request('POST', `${ApiClient.API_V1_PREFIX}/firma/esign/invite-all/`, {
@@ -1218,8 +1224,8 @@ export class ApiClient {
   }
 
   /**
-   * Single-step Firma signing flow:
-   * invite all signers (backend emails everyone) -> return signing URL for first signer.
+   * Production-grade Firma signing flow:
+   * invite-all -> (optional) fetch signing URL for first signer.
    */
   async firmaStart(payload: FirmaSignRequest): Promise<ApiResponse<{ signing_url: string }>> {
     const contractId = payload.contract_id
@@ -1228,7 +1234,7 @@ export class ApiClient {
       return { success: false, error: 'contract_id and at least one signer are required', status: 400 }
     }
 
-    // New single-step flow: backend force-uploads with all recipients and emails everyone.
+    // Firma is always treated as parallel invite-all.
     const inviteRes = await this.firmaInviteAll({
       contract_id: contractId,
       signers,
@@ -1236,20 +1242,22 @@ export class ApiClient {
       document_name: payload.document_name,
     })
     if (!inviteRes.success) {
-      return { success: false, error: inviteRes.error || 'Failed to invite signers', status: inviteRes.status }
+      return { success: false, error: inviteRes.error || 'Failed to invite all Firma signers', status: inviteRes.status }
     }
 
-    let signingUrl = String((inviteRes.data as any)?.signing_url || '')
-    if (!signingUrl) {
-      // Fallback: ask backend to generate the first signer URL directly.
-      const signerEmail = signers[0].email
-      const urlRes = await this.firmaGetSigningUrl(contractId, signerEmail)
-      if (!urlRes.success) {
-        return { success: false, error: urlRes.error || 'Failed to generate Firma signing URL', status: urlRes.status }
-      }
-      signingUrl = String((urlRes.data as any)?.signing_url || '')
+    const inlineUrl = String((inviteRes.data as any)?.signing_url || '')
+    if (inlineUrl) {
+      return { success: true, data: { signing_url: inlineUrl }, status: 200 }
     }
 
+    // Fallback: some environments may not return a signing_url; fetch it for the first signer.
+    const signerEmail = signers[0].email
+    const urlRes = await this.firmaGetSigningUrl(contractId, signerEmail)
+    if (!urlRes.success) {
+      return { success: false, error: urlRes.error || 'Failed to generate Firma signing URL', status: urlRes.status }
+    }
+
+    const signingUrl = String((urlRes.data as any)?.signing_url || '')
     if (!signingUrl) {
       return { success: false, error: 'Signing URL missing in response', status: 500 }
     }
