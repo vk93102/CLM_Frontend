@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { CheckCircle2, Clock3, XCircle } from 'lucide-react';
 import DashboardLayout from '../../../components/DashboardLayout';
 import { ApiClient, type Contract } from '../../../lib/api-client';
 
@@ -66,6 +67,68 @@ function StatusBadge(props: { label: string }) {
 				? 'bg-amber-50 text-amber-800 border-amber-200'
 				: 'bg-slate-50 text-slate-700 border-slate-200';
 	return <span className={`px-2 py-1 rounded-full border text-[11px] font-semibold ${badgeClass}`}>{raw || '—'}</span>;
+}
+
+function initialsForUser(nameOrEmail: string): string {
+	const value = String(nameOrEmail || '').trim();
+	if (!value) return '?';
+	const email = value.includes('@') ? value : '';
+	const name = email ? '' : value;
+	if (name) {
+		const parts = name.split(/\s+/).filter(Boolean);
+		const a = parts[0]?.[0] || '';
+		const b = parts.length > 1 ? parts[parts.length - 1]?.[0] || '' : '';
+		return (a + b).toUpperCase() || '?';
+	}
+	if (email) {
+		const local = email.split('@')[0] || email;
+		return local.slice(0, 2).toUpperCase() || '?';
+	}
+	return value.slice(0, 2).toUpperCase() || '?';
+}
+
+function colorForString(input: string): { bg: string; fg: string } {
+	const s = String(input || '');
+	let hash = 0;
+	for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) | 0;
+	const palette = [
+		{ bg: 'bg-indigo-100', fg: 'text-indigo-700' },
+		{ bg: 'bg-violet-100', fg: 'text-violet-700' },
+		{ bg: 'bg-sky-100', fg: 'text-sky-700' },
+		{ bg: 'bg-emerald-100', fg: 'text-emerald-700' },
+		{ bg: 'bg-amber-100', fg: 'text-amber-800' },
+		{ bg: 'bg-rose-100', fg: 'text-rose-700' },
+	];
+	const idx = Math.abs(hash) % palette.length;
+	return palette[idx];
+}
+
+function RecipientAvatar(props: { name?: string; email?: string }) {
+	const label = String(props.name || props.email || '').trim();
+	const { bg, fg } = colorForString(props.email || props.name || label);
+	return (
+		<div className={`h-10 w-10 rounded-full flex items-center justify-center ${bg} ${fg} font-extrabold text-sm flex-shrink-0`}>
+			{initialsForUser(label)}
+		</div>
+	);
+}
+
+function StatusIcon(props: { status: string }) {
+	const raw = String(props.status || '').trim().toLowerCase();
+	const isDeclined = ['declined', 'rejected', 'canceled', 'cancelled', 'refused', 'failed', 'error'].includes(raw);
+	const isSigned = ['signed', 'completed', 'executed', 'done', 'finished'].includes(raw);
+	if (isSigned) return <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />;
+	if (isDeclined) return <XCircle className="h-4 w-4 text-rose-600" aria-hidden="true" />;
+	return <Clock3 className="h-4 w-4 text-amber-600" aria-hidden="true" />;
+}
+
+function normalizeFirmaStatusLabel(value: any): string {
+	const raw = String(value || '').trim();
+	const lc = raw.toLowerCase();
+	if (lc === 'finished') return 'completed';
+	if (lc === 'not_sent') return 'draft';
+	if (lc === 'in_progress') return 'in progress';
+	return raw;
 }
 
 function unwrapContractLike(value: any): Contract | null {
@@ -465,12 +528,16 @@ export default function SigningStatusPage() {
 							{Array.isArray(statusData?.signers) && statusData.signers.length > 0 ? (
 								statusData.signers.map((s: any) => (
 									<div key={String(s.email)} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-3">
-										<div className="min-w-0">
-											<div className="text-sm font-semibold text-slate-900 truncate">{String(s.name || s.email || 'Signer')}</div>
-											<div className="text-xs text-slate-500 truncate">{String(s.email || '')}</div>
+										<div className="flex items-center gap-3 min-w-0">
+											<RecipientAvatar name={String(s.name || '')} email={String(s.email || '')} />
+											<div className="min-w-0">
+												<div className="text-sm font-semibold text-slate-900 truncate">{String(s.name || s.email || 'Signer')}</div>
+												<div className="text-xs text-slate-500 truncate">{String(s.email || '')}</div>
+											</div>
 										</div>
 										<div className="flex items-center gap-2 flex-shrink-0">
-											<StatusBadge label={String(s.status || (s.has_signed ? 'signed' : 'pending'))} />
+											<StatusIcon status={String(s.status || (s.has_signed ? 'signed' : 'pending'))} />
+											<StatusBadge label={normalizeFirmaStatusLabel(String(s.status || (s.has_signed ? 'signed' : 'pending')))} />
 											{s.signed_at ? <span className="text-[11px] text-slate-400">{formatMaybeDate(s.signed_at)}</span> : null}
 										</div>
 									</div>
@@ -527,20 +594,34 @@ export default function SigningStatusPage() {
 								const sr = (details as any)?.signing_request ?? (details as any)?.data?.signing_request ?? (details as any);
 								const requestId = pickFirst(sr, ['id', 'signing_request_id', 'request_id']);
 								const status = pickFirst(sr, ['status', 'state']);
-								const createdAt = pickFirst(sr, ['created_at', 'createdAt', 'created']);
-								const completedAt = pickFirst(sr, ['completed_at', 'executed_at', 'finished_at']);
-								const expiresAt = pickFirst(sr, ['expires_at', 'expiresAt', 'expiration']);
+
+								// Prefer the normalized backend status payload (it has *_at fields),
+								// but fall back to Firma's documented date_* fields from `details`.
+								const createdAt =
+									pickFirst(statusData, ['created_at', 'createdAt', 'created']) ??
+									pickFirst(sr, ['date_created', 'created_at', 'createdAt', 'created']);
+								const completedAt =
+									pickFirst(statusData, ['completed_at', 'completedAt', 'executed_at', 'finished_at']) ??
+									pickFirst(sr, ['date_finished', 'completed_at', 'executed_at', 'finished_at']);
+								const expiresAt =
+									pickFirst(statusData, ['expires_at', 'expiresAt', 'expiration']) ??
+									pickFirst(sr, ['expires_at', 'expiresAt', 'expiration']);
 								const certificateUrl = pickFirst(sr, ['certificate_url', 'certificateUrl', 'audit_trail_url', 'auditTrailUrl']);
+
+								const statusLabel = normalizeFirmaStatusLabel(toDisplayString(status));
 
 								return (
 									<div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
 										<div className="rounded-xl border border-slate-200 p-3">
-											<div className="text-[11px] text-slate-500">Request ID</div>
+											<div className="text-[11px] text-slate-500">Signing Request ID</div>
 											<div className="mt-1 text-sm font-semibold text-slate-900 break-all">{requestId ? String(requestId) : '—'}</div>
 										</div>
 										<div className="rounded-xl border border-slate-200 p-3">
 											<div className="text-[11px] text-slate-500">Request status</div>
-											<div className="mt-1"><StatusBadge label={toDisplayString(status)} /></div>
+											<div className="mt-1 flex items-center gap-2">
+												<StatusIcon status={statusLabel} />
+												<StatusBadge label={statusLabel} />
+											</div>
 										</div>
 										<div className="rounded-xl border border-slate-200 p-3">
 											<div className="text-[11px] text-slate-500">Created</div>
