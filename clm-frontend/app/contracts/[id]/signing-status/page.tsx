@@ -1,0 +1,575 @@
+'use client';
+
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import DashboardLayout from '../../../components/DashboardLayout';
+import { ApiClient, type Contract } from '../../../lib/api-client';
+
+type StepKey = 'invite_sent' | 'recipient_received' | 'signature_pending' | 'completed';
+
+function formatRelative(ms: number): string {
+	if (!ms || ms < 0) return '—';
+	const s = Math.floor(ms / 1000);
+	if (s < 5) return 'just now';
+	if (s < 60) return `${s}s ago`;
+	const m = Math.floor(s / 60);
+	if (m < 60) return `${m} min${m === 1 ? '' : 's'} ago`;
+	const h = Math.floor(m / 60);
+	if (h < 24) return `${h} hr${h === 1 ? '' : 's'} ago`;
+	const d = Math.floor(h / 24);
+	return `${d} day${d === 1 ? '' : 's'} ago`;
+}
+
+function formatMaybeDate(value: any): string {
+	if (!value) return '—';
+	const d = new Date(String(value));
+	if (Number.isNaN(d.getTime())) return String(value);
+	return d.toLocaleString();
+}
+
+function pickFirst(obj: any, keys: string[]): any {
+	for (const k of keys) {
+		const v = obj?.[k];
+		if (v !== undefined && v !== null && v !== '') return v;
+	}
+	return null;
+}
+
+function toDisplayString(value: any): string {
+	if (value === undefined || value === null) return '—';
+	if (typeof value === 'string') return value;
+	if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+	if (typeof value === 'object') {
+		const v = value as any;
+		const picked = pickFirst(v, ['label', 'name', 'status', 'state', 'value']);
+		if (picked !== null) return toDisplayString(picked);
+		try {
+			return JSON.stringify(value);
+		} catch {
+			return '—';
+		}
+	}
+	return String(value);
+}
+
+function StatusBadge(props: { label: string }) {
+	const raw = String(props.label || '').trim();
+	const lower = raw.toLowerCase();
+	const isDeclined = ['declined', 'rejected', 'canceled', 'cancelled', 'refused'].includes(lower);
+	const isSigned = ['signed', 'completed', 'executed', 'done'].includes(lower);
+	const isPending = ['sent', 'invited', 'pending', 'in_progress', 'in progress', 'viewed'].includes(lower);
+	const badgeClass = isDeclined
+		? 'bg-rose-50 text-rose-700 border-rose-200'
+		: isSigned
+			? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+			: isPending
+				? 'bg-amber-50 text-amber-800 border-amber-200'
+				: 'bg-slate-50 text-slate-700 border-slate-200';
+	return <span className={`px-2 py-1 rounded-full border text-[11px] font-semibold ${badgeClass}`}>{raw || '—'}</span>;
+}
+
+function unwrapContractLike(value: any): Contract | null {
+	if (!value) return null;
+	if (value?.contract) return value.contract as Contract;
+	if (value?.data?.contract) return value.data.contract as Contract;
+	return value as Contract;
+}
+
+function computeSteps(statusData: any): Record<StepKey, boolean> {
+	const status = String(statusData?.status || '').toLowerCase();
+	const signers = Array.isArray(statusData?.signers) ? statusData.signers : [];
+	const anyViewed = signers.some((s: any) => ['viewed', 'in_progress', 'signed'].includes(String(s?.status || '').toLowerCase()) || !!s?.has_signed);
+	const allSigned = !!statusData?.all_signed || (signers.length > 0 && signers.every((s: any) => !!s?.has_signed));
+
+	return {
+		invite_sent: ['sent', 'in_progress', 'completed', 'declined'].includes(status) || signers.length > 0,
+		recipient_received: anyViewed,
+		signature_pending: (['sent', 'in_progress'].includes(status) || signers.length > 0) && !allSigned,
+		completed: status === 'completed' || allSigned,
+	};
+}
+
+function StepPill(props: { title: string; active: boolean; subtitle?: string }) {
+	return (
+		<div className="flex items-center gap-3">
+			<div className={`h-10 w-10 rounded-full flex items-center justify-center border ${props.active ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
+				<div className={`h-3 w-3 rounded-full ${props.active ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+			</div>
+			<div>
+				<div className="text-sm font-semibold text-slate-900">{props.title}</div>
+				{props.subtitle ? <div className="text-xs text-slate-500 mt-0.5">{props.subtitle}</div> : null}
+			</div>
+		</div>
+	);
+}
+
+function TrackingStepper(props: {
+	steps: Record<StepKey, boolean>;
+	meta: Partial<Record<StepKey, { subtitle?: string }>>;
+}) {
+	const items: Array<{ key: StepKey; label: string }> = [
+		{ key: 'invite_sent', label: 'Invite Sent' },
+		{ key: 'recipient_received', label: 'Recipient Received' },
+		{ key: 'signature_pending', label: 'Signature Pending' },
+		{ key: 'completed', label: 'Completed' },
+	];
+
+	const activeIdx = Math.max(
+		0,
+		items.reduce((acc, it, idx) => (props.steps[it.key] ? idx : acc), 0)
+	);
+
+	return (
+		<div className="mt-5">
+			<div className="relative">
+				<div className="absolute left-6 right-6 top-5 h-[2px] bg-slate-200" />
+				<div
+					className="absolute left-6 top-5 h-[2px] bg-emerald-400"
+					style={{ width: `calc(${(activeIdx / (items.length - 1)) * 100}% - 0px)` }}
+				/>
+				<div className="grid grid-cols-4 gap-3">
+					{items.map((it, idx) => {
+						const active = Boolean(props.steps[it.key]);
+						const completed = idx < activeIdx;
+						const dotClass = completed || active ? 'bg-emerald-500 border-emerald-500' : 'bg-white border-slate-300';
+						const labelClass = completed || active ? 'text-slate-900' : 'text-slate-400';
+						return (
+							<div key={it.key} className="flex flex-col items-center text-center">
+								<div className={`h-10 w-10 rounded-full border-2 flex items-center justify-center ${dotClass}`}>
+									{completed ? (
+										<div className="h-4 w-4 rounded-full bg-white" />
+									) : (
+										<div className={`h-3 w-3 rounded-full ${active ? 'bg-white' : 'bg-slate-300'}`} />
+									)}
+								</div>
+								<div className={`mt-2 text-xs font-semibold ${labelClass}`}>{it.label}</div>
+								{props.meta[it.key]?.subtitle ? (
+									<div className="mt-0.5 text-[11px] text-slate-400">{props.meta[it.key]?.subtitle}</div>
+								) : null}
+							</div>
+						);
+					})}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+export default function SigningStatusPage() {
+	const params = useParams<{ id: string }>();
+	const router = useRouter();
+	const contractId = params?.id;
+
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
+	const [contract, setContract] = useState<Contract | null>(null);
+
+	const [statusData, setStatusData] = useState<any | null>(null);
+	const [details, setDetails] = useState<any | null>(null);
+	const [reminders, setReminders] = useState<any | null>(null);
+	const [downloading, setDownloading] = useState(false);
+	const [events, setEvents] = useState<Array<{ ts: number; type: string; message?: string; payload?: any }>>([]);
+	const [activity, setActivity] = useState<any[] | null>(null);
+	const lastStatusSigRef = useRef<string | null>(null);
+
+	const [liveEnabled, setLiveEnabled] = useState(true);
+	const [liveState, setLiveState] = useState<'disconnected' | 'connected' | 'error'>('disconnected');
+	const [lastEventTs, setLastEventTs] = useState<number | null>(null);
+	const [lastRefreshMs, setLastRefreshMs] = useState<number | null>(null);
+	const streamCloseRef = useRef<null | (() => void)>(null);
+	const pollRef = useRef<number | null>(null);
+
+	const steps = useMemo(() => computeSteps(statusData), [statusData]);
+	const declined = useMemo(() => {
+		const status = String(statusData?.status || '').toLowerCase();
+		const signers = Array.isArray(statusData?.signers) ? statusData.signers : [];
+		const anyDeclined = signers.some((s: any) => ['declined', 'rejected', 'canceled', 'cancelled', 'refused'].includes(String(s?.status || '').toLowerCase()));
+		return status === 'declined' || anyDeclined;
+	}, [statusData]);
+
+	const refreshAll = async () => {
+		if (!contractId) return;
+		try {
+			const client = new ApiClient();
+			const [cRes, sRes, dRes, rRes, aRes] = await Promise.all([
+				client.getContractById(contractId),
+				client.firmaStatus(contractId),
+				client.firmaDetails(contractId),
+				client.firmaReminders(contractId),
+				client.firmaActivityLog(contractId, 50),
+			]);
+
+			if (!cRes.success) throw new Error(cRes.error || 'Failed to load contract');
+			setContract(unwrapContractLike(cRes.data));
+
+			if (sRes.success) {
+				setStatusData(sRes.data);
+				try {
+					const d: any = sRes.data as any;
+					const sig = JSON.stringify({ status: d?.status, all_signed: d?.all_signed, signers: d?.signers || [] });
+					if (lastStatusSigRef.current && lastStatusSigRef.current !== sig) {
+						setEvents((prev) => [{ ts: Date.now(), type: 'status_update', message: 'Status changed', payload: d }, ...prev].slice(0, 50));
+					}
+					lastStatusSigRef.current = sig;
+				} catch {
+					// ignore
+				}
+			}
+			if (dRes.success) setDetails(dRes.data);
+			if (rRes.success) setReminders(rRes.data);
+			if (aRes.success) setActivity((aRes.data as any)?.results || []);
+			setLastRefreshMs(Date.now());
+		} catch (e) {
+			setError(e instanceof Error ? e.message : 'Failed to load signing status');
+		}
+	};
+	const resendInvites = async () => {
+		if (!contractId) return;
+		try {
+			setError(null);
+			const client = new ApiClient();
+			const res = await client.firmaResendInvites(contractId);
+			if (!res.success) {
+				setError(res.error || 'Failed to resend notifications');
+				return;
+			}
+			setEvents((prev) => [{ ts: Date.now(), type: 'invite_resent', message: 'Resent signing notifications' }, ...prev].slice(0, 50));
+			void refreshAll();
+		} catch (e) {
+			setError(e instanceof Error ? e.message : 'Failed to resend notifications');
+		}
+	};
+
+
+	useEffect(() => {
+		if (!contractId) return;
+		setLoading(true);
+		setError(null);
+		void refreshAll().finally(() => setLoading(false));
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [contractId]);
+
+	const cleanupLiveResources = () => {
+		try {
+			streamCloseRef.current?.();
+		} catch {
+			// ignore
+		}
+		streamCloseRef.current = null;
+		if (pollRef.current && typeof window !== 'undefined') window.clearInterval(pollRef.current);
+		pollRef.current = null;
+	};
+
+	const stopLive = () => {
+		setLiveEnabled(false);
+		setLiveState('disconnected');
+		cleanupLiveResources();
+	};
+
+	const startLive = () => {
+		if (!contractId) return;
+		setLiveState('disconnected');
+		setLastEventTs(null);
+		cleanupLiveResources();
+
+		const client = new ApiClient();
+		const sub = client.firmaWebhookStream(contractId, {
+			onReady: () => setLiveState('connected'),
+			onError: () => setLiveState('error'),
+			onEvent: (evt: { event?: string; data?: any; raw?: string }) => {
+				setLastEventTs(Date.now());
+				setEvents((prev) => [{ ts: Date.now(), type: evt.event || 'firma', payload: evt.data }, ...prev].slice(0, 50));
+				void refreshAll();
+			},
+		});
+		streamCloseRef.current = sub.close;
+
+		if (typeof window !== 'undefined') {
+			pollRef.current = window.setInterval(() => void refreshAll(), 10000);
+		}
+	};
+
+	useEffect(() => {
+		if (!contractId) return;
+		if (!liveEnabled) {
+			cleanupLiveResources();
+			setLiveState('disconnected');
+			return;
+		}
+		startLive();
+		return () => cleanupLiveResources();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [contractId, liveEnabled]);
+
+	const downloadExecuted = async () => {
+		if (!contractId) return;
+		try {
+			setDownloading(true);
+			setError(null);
+			const client = new ApiClient();
+			const res = await client.firmaDownloadExecutedPdf(contractId);
+			if (!res.success || !res.data) {
+				setError(res.error || 'Failed to download signed PDF');
+				return;
+			}
+			const blobUrl = URL.createObjectURL(res.data);
+			const a = document.createElement('a');
+			a.href = blobUrl;
+			a.download = `${(contract?.title || 'contract').replace(/\s+/g, '_')}_signed.pdf`;
+			document.body.appendChild(a);
+			a.click();
+			a.remove();
+			URL.revokeObjectURL(blobUrl);
+		} finally {
+			setDownloading(false);
+		}
+	};
+
+	return (
+		<DashboardLayout>
+			<div className="flex items-center justify-between gap-4 mb-6">
+				<div className="min-w-0">
+					<div className="flex items-center gap-3 flex-wrap">
+						<h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 truncate">{contract?.title || 'Signing status'}</h1>
+						{(() => {
+							const statusLabel = declined
+								? 'DECLINED'
+								: steps.completed
+								? 'COMPLETED'
+								: steps.signature_pending
+									? 'SIGNATURE PENDING'
+									: steps.recipient_received
+										? 'RECIPIENT RECEIVED'
+										: steps.invite_sent
+											? 'INVITE SENT'
+											: '—';
+							const pillClass = declined
+								? 'bg-rose-100 text-rose-800'
+								: steps.completed
+									? 'bg-emerald-100 text-emerald-800'
+									: 'bg-amber-100 text-amber-800';
+							return (
+								<span className={`px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide ${pillClass}`}>{statusLabel}</span>
+							);
+						})()}
+					</div>
+					<div className="mt-1 text-xs text-slate-500">
+						{contractId ? `ID: ${contractId}` : null}
+						{lastRefreshMs ? ` · Last update: ${formatRelative(Date.now() - lastRefreshMs)}` : null}
+						{lastEventTs ? ` · Last event: ${new Date(lastEventTs).toLocaleTimeString()}` : null}
+					</div>
+				</div>
+
+				<div className="flex items-center gap-2">
+					{steps.completed ? (
+						<button
+							type="button"
+							onClick={() => void downloadExecuted()}
+							disabled={downloading}
+							className="h-10 px-4 rounded-full bg-[#0F141F] text-white text-sm font-semibold disabled:opacity-60"
+						>
+							{downloading ? 'Downloading…' : 'Download signed PDF'}
+						</button>
+					) : null}
+					<button
+						type="button"
+						onClick={() => router.push(`/contracts/${contractId}`)}
+						className="h-10 px-4 rounded-full bg-white border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+					>
+						Back
+					</button>
+					<button
+						type="button"
+						onClick={() => void refreshAll()}
+						className="h-10 px-4 rounded-full bg-white border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+					>
+						Refresh
+					</button>
+					<button
+						type="button"
+						onClick={() => void resendInvites()}
+						disabled={steps.completed}
+						className="h-10 px-4 rounded-full bg-rose-500 text-white text-sm font-semibold hover:bg-rose-600 disabled:opacity-60"
+						title={steps.completed ? 'Already completed' : 'Resend signing notifications'}
+					>
+						Resend notifications
+					</button>
+				</div>
+			</div>
+
+			{loading ? <div className="py-16 text-center text-slate-500">Loading…</div> : null}
+			{error ? <div className="py-2 text-sm text-rose-600">{error}</div> : null}
+
+			<div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+				<div className="lg:col-span-2 space-y-6">
+					<div className="bg-white rounded-3xl border border-slate-200 p-6">
+						<div className="text-sm font-extrabold text-slate-900">Signature Tracking</div>
+						{declined ? (
+							<div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+								A recipient declined the signing request. You can update recipients and click “Resend notifications”.
+							</div>
+						) : null}
+						<TrackingStepper
+							steps={steps}
+							meta={{
+								invite_sent: { subtitle: '' },
+								recipient_received: { subtitle: '' },
+								signature_pending: { subtitle: 'In progress' },
+								completed: { subtitle: steps.completed ? 'Done' : 'Awaiting' },
+							}}
+						/>
+					</div>
+
+					<div className="bg-white rounded-3xl border border-slate-200 p-6">
+						<div className="flex items-center justify-between">
+							<div className="text-sm font-extrabold text-slate-900">Recipients</div>
+							<div className="text-xs text-slate-500">{Array.isArray(statusData?.signers) ? `${statusData.signers.length} signers` : '—'}</div>
+						</div>
+
+						<div className="mt-4 space-y-2">
+							{Array.isArray(statusData?.signers) && statusData.signers.length > 0 ? (
+								statusData.signers.map((s: any) => (
+									<div key={String(s.email)} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-3">
+										<div className="min-w-0">
+											<div className="text-sm font-semibold text-slate-900 truncate">{String(s.name || s.email || 'Signer')}</div>
+											<div className="text-xs text-slate-500 truncate">{String(s.email || '')}</div>
+										</div>
+										<div className="flex items-center gap-2 flex-shrink-0">
+											<StatusBadge label={String(s.status || (s.has_signed ? 'signed' : 'pending'))} />
+											{s.signed_at ? <span className="text-[11px] text-slate-400">{formatMaybeDate(s.signed_at)}</span> : null}
+										</div>
+									</div>
+								))
+							) : (
+								<div className="text-sm text-slate-500">No recipient info yet.</div>
+							)}
+						</div>
+					</div>
+
+					<div className="bg-white rounded-3xl border border-slate-200 p-6">
+						<div className="flex items-center justify-between">
+							<div className="text-sm font-extrabold text-slate-900">Summary Details</div>
+							<div className="text-xs text-slate-500">
+								Live: {liveEnabled ? (liveState === 'connected' ? 'connected' : liveState) : 'off'}
+							</div>
+						</div>
+
+						<div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+							<div className="rounded-2xl border border-slate-200 p-4">
+								<div className="text-xs font-semibold text-slate-700">Status</div>
+								<div className="mt-2 flex items-center gap-2">
+									<div className="text-sm font-bold text-slate-900">{String(statusData?.status || '—')}</div>
+									{statusData?.all_signed ? <StatusBadge label="all signed" /> : null}
+								</div>
+								<div className="mt-3 text-xs text-slate-500">
+									Signers: {Array.isArray(statusData?.signers) ? statusData.signers.length : 0}
+									{statusData?.all_signed ? ' · All signed' : ''}
+								</div>
+							</div>
+							<div className="rounded-2xl border border-slate-200 p-4">
+								<div className="text-xs font-semibold text-slate-700">Reminders</div>
+								{(() => {
+									const r = (reminders as any)?.reminders ?? (reminders as any);
+									const enabled = pickFirst(r, ['enabled', 'is_enabled', 'active']);
+									const nextAt = pickFirst(r, ['next_scheduled_at', 'next_run_at', 'next_at']);
+									const lastAt = pickFirst(r, ['last_sent_at', 'last_run_at', 'last_at']);
+									const interval = pickFirst(r, ['interval_days', 'interval', 'frequency']);
+									return (
+										<div className="mt-2 space-y-1 text-xs text-slate-600">
+											<div>Enabled: <span className="font-semibold text-slate-900">{enabled === null ? '—' : String(Boolean(enabled))}</span></div>
+											<div>Next: <span className="font-semibold text-slate-900">{formatMaybeDate(nextAt)}</span></div>
+											<div>Last: <span className="font-semibold text-slate-900">{formatMaybeDate(lastAt)}</span></div>
+											{interval !== null ? <div>Interval: <span className="font-semibold text-slate-900">{String(interval)}</span></div> : null}
+										</div>
+									);
+								})()}
+							</div>
+						</div>
+
+						<div className="mt-4 rounded-2xl border border-slate-200 p-4">
+							<div className="text-xs font-semibold text-slate-700">Signing request details / certificate</div>
+							{(() => {
+								const sr = (details as any)?.signing_request ?? (details as any)?.data?.signing_request ?? (details as any);
+								const requestId = pickFirst(sr, ['id', 'signing_request_id', 'request_id']);
+								const status = pickFirst(sr, ['status', 'state']);
+								const createdAt = pickFirst(sr, ['created_at', 'createdAt', 'created']);
+								const completedAt = pickFirst(sr, ['completed_at', 'executed_at', 'finished_at']);
+								const expiresAt = pickFirst(sr, ['expires_at', 'expiresAt', 'expiration']);
+								const certificateUrl = pickFirst(sr, ['certificate_url', 'certificateUrl', 'audit_trail_url', 'auditTrailUrl']);
+
+								return (
+									<div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+										<div className="rounded-xl border border-slate-200 p-3">
+											<div className="text-[11px] text-slate-500">Request ID</div>
+											<div className="mt-1 text-sm font-semibold text-slate-900 break-all">{requestId ? String(requestId) : '—'}</div>
+										</div>
+										<div className="rounded-xl border border-slate-200 p-3">
+											<div className="text-[11px] text-slate-500">Request status</div>
+											<div className="mt-1"><StatusBadge label={toDisplayString(status)} /></div>
+										</div>
+										<div className="rounded-xl border border-slate-200 p-3">
+											<div className="text-[11px] text-slate-500">Created</div>
+											<div className="mt-1 text-sm font-semibold text-slate-900">{formatMaybeDate(createdAt)}</div>
+										</div>
+										<div className="rounded-xl border border-slate-200 p-3">
+											<div className="text-[11px] text-slate-500">Completed</div>
+											<div className="mt-1 text-sm font-semibold text-slate-900">{formatMaybeDate(completedAt)}</div>
+										</div>
+										<div className="rounded-xl border border-slate-200 p-3 md:col-span-2 flex items-center justify-between gap-3">
+											<div className="min-w-0">
+												<div className="text-[11px] text-slate-500">Expires</div>
+												<div className="mt-1 text-sm font-semibold text-slate-900">{formatMaybeDate(expiresAt)}</div>
+											</div>
+											{certificateUrl ? (
+												<a
+													href={String(certificateUrl)}
+													target="_blank"
+													rel="noreferrer"
+													className="h-9 px-4 rounded-full bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex-shrink-0"
+												>
+													View certificate
+												</a>
+											) : null}
+										</div>
+									</div>
+								);
+							})()}
+						</div>
+					</div>
+				</div>
+
+				<div className="space-y-6">
+					<div className="bg-white rounded-3xl border border-slate-200 p-6">
+						<div className="flex items-center justify-between">
+							<div>
+								<div className="text-sm font-extrabold text-slate-900">Activity</div>
+								<div className="text-xs text-slate-500 mt-1">Live updates via SSE + polling.</div>
+							</div>
+							<button
+								type="button"
+								onClick={() => (liveEnabled ? stopLive() : startLive())}
+								className="h-9 px-4 rounded-full bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+							>
+								{liveEnabled ? 'Stop live' : 'Start live'}
+							</button>
+						</div>
+
+						<div className="mt-4 space-y-3 max-h-[60vh] overflow-auto">
+							{events.length > 0 ? (
+								events.map((e, i) => (
+									<div key={`${e.ts}-${i}`} className="rounded-2xl border border-slate-200 p-3">
+										<div className="text-xs text-slate-500">{new Date(e.ts).toLocaleString()}</div>
+										<div className="mt-1 text-sm font-semibold text-slate-900">{e.type}</div>
+										{e.message ? <div className="mt-1 text-xs text-slate-700">{e.message}</div> : null}
+									</div>
+								))
+							) : (
+								<div className="text-sm text-slate-500">No activity yet.</div>
+							)}
+						</div>
+					</div>
+				</div>
+			</div>
+		</DashboardLayout>
+	);
+}

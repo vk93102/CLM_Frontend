@@ -1243,6 +1243,15 @@ export class ApiClient {
     return this.request('GET', `${ApiClient.API_V1_PREFIX}/firma/esign/reminders/${contractId}/`)
   }
 
+  async firmaActivityLog(contractId: string, limit = 50): Promise<ApiResponse<any>> {
+    const lim = Math.max(1, Math.min(200, Number(limit) || 50))
+    return this.request('GET', `${ApiClient.API_V1_PREFIX}/firma/esign/activity/${contractId}/?limit=${encodeURIComponent(String(lim))}`)
+  }
+
+  async firmaResendInvites(contractId: string): Promise<ApiResponse<any>> {
+    return this.request('POST', `${ApiClient.API_V1_PREFIX}/firma/esign/resend/${contractId}/`, {})
+  }
+
   /**
    * Authenticated SSE stream used for near-real-time notifications.
    * This uses `fetch()` streaming instead of `EventSource` so we can send Authorization headers.

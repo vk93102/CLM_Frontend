@@ -907,8 +907,10 @@ const ContractEditorPageV2: React.FC = () => {
 
       setSigningUrl(url);
       window.open(url, '_blank', 'noopener,noreferrer');
-      // Start live polling immediately after launching signing.
-      startLiveStatus();
+
+        // Move user to the dedicated progress page right away.
+        setSignOpen(false);
+        router.push(`/contracts/${contractId}/signing-status`);
     } catch (e) {
       setSignError(e instanceof Error ? e.message : 'Failed to start signing');
     } finally {
@@ -958,7 +960,10 @@ const ContractEditorPageV2: React.FC = () => {
       closePlacer();
       setSigningUrl(url);
       window.open(url, '_blank', 'noopener,noreferrer');
-      startLiveStatus();
+
+        // Move user to the dedicated progress page right away.
+        setSignOpen(false);
+        router.push(`/contracts/${pending.contract_id}/signing-status`);
     } finally {
       setSigning(false);
     }
