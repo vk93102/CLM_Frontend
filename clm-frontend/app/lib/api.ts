@@ -155,6 +155,12 @@ async function handleResponse<T>(response: Response): Promise<T> {
 // ============================================================================
 
 export const tokenManager = {
+  _notifyAuthChanged: (): void => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('auth:tokens'))
+    }
+  },
+
   getAccessToken: (): string | null => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('access_token')
@@ -173,12 +179,14 @@ export const tokenManager = {
     if (typeof window !== 'undefined') {
       localStorage.setItem('access_token', access)
       localStorage.setItem('refresh_token', refresh)
+      tokenManager._notifyAuthChanged()
     }
   },
 
   setUser: (user: User): void => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('user', JSON.stringify(user))
+      tokenManager._notifyAuthChanged()
     }
   },
 
@@ -195,6 +203,7 @@ export const tokenManager = {
       localStorage.removeItem('access_token')
       localStorage.removeItem('refresh_token')
       localStorage.removeItem('user')
+      tokenManager._notifyAuthChanged()
     }
   },
 
@@ -282,6 +291,25 @@ export async function loginUser(
   })
 
   return handleResponse<AuthResponse>(response)
+}
+
+/**
+ * Login/register via Google ID token (credential)
+ * POST /api/auth/google/
+ */
+export async function googleLogin(credential: string): Promise<AuthResponse> {
+  const response = await fetch(`${BASE_URL}/api/auth/google/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ credential }),
+  })
+
+  const result = await handleResponse<AuthResponse>(response)
+  tokenManager.setTokens(result.access, result.refresh)
+  tokenManager.setUser(result.user)
+  return result
 }
 
 /**
@@ -995,6 +1023,10 @@ export const authAPI = {
     tokenManager.setTokens(result.access, result.refresh)
     tokenManager.setUser(result.user)
     return result
+  },
+
+  googleLogin: async (credential: string) => {
+    return googleLogin(credential)
   },
 
   forgotPassword: async (email: string) => {

@@ -10,6 +10,7 @@ interface AuthContextType {
   error: string | null
   user: User | null
   login: (email: string, password: string) => Promise<void>
+  loginWithGoogle: (credential: string) => Promise<void>
   register: (data: { email: string; password: string; full_name: string; company?: string }) => Promise<void>
   logout: () => void
   clearError: () => void
@@ -51,6 +52,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     bootstrap()
 
+    const syncFromStorage = () => {
+      const token = tokenManager.getAccessToken()
+      const cachedUser = tokenManager.getUser()
+      setIsAuthenticated(!!token)
+      setUser(cachedUser)
+      // Don't touch isLoading here; this is a reactive sync.
+    }
+
     const handleLogout = () => {
       tokenManager.clearTokens()
       setIsAuthenticated(false)
@@ -60,6 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (typeof window !== 'undefined') {
       window.addEventListener('auth:logout', handleLogout)
+      window.addEventListener('auth:tokens', syncFromStorage)
       window.addEventListener('storage', (e) => {
         if (e.key === 'access_token' && !e.newValue) {
           handleLogout()
@@ -70,6 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       if (typeof window !== 'undefined') {
         window.removeEventListener('auth:logout', handleLogout)
+        window.removeEventListener('auth:tokens', syncFromStorage)
       }
     }
   }, [])
@@ -82,6 +93,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsAuthenticated(true)
     } catch (err: any) {
       const errorMessage = err?.message || err?.detail || 'Login failed'
+      setError(errorMessage)
+      throw err
+    }
+  }
+
+  const loginWithGoogle = async (credential: string) => {
+    try {
+      setError(null)
+      const response = await authAPI.googleLogin(credential)
+      setUser(response.user)
+      setIsAuthenticated(true)
+    } catch (err: any) {
+      const errorMessage = err?.message || err?.detail || 'Google login failed'
       setError(errorMessage)
       throw err
     }
@@ -118,7 +142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, isLoading, error, user, login, register, logout, clearError }}>
+    <AuthContext.Provider value={{ isAuthenticated, isLoading, error, user, login, loginWithGoogle, register, logout, clearError }}>
       {children}
     </AuthContext.Provider>
   )

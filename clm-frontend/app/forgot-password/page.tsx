@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { requestPasswordReset } from '@/app/lib/api'
+import AuthCardShell from '@/app/components/AuthCardShell'
 
 export default function ForgotPasswordPage() {
   const router = useRouter()
@@ -44,141 +45,61 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="flex h-screen bg-white">
-      {/* Left Panel - Gradient */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-purple-600 via-purple-500 to-pink-500 relative overflow-hidden flex-col justify-between p-12">
-        {/* Animated Background Blobs */}
-        <div className="absolute top-0 left-0 w-96 h-96 bg-white opacity-10 rounded-full mix-blend-multiply filter blur-3xl animate-blob"></div>
-        <div className="absolute top-0 right-0 w-96 h-96 bg-pink-300 opacity-10 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-2000"></div>
-        <div className="absolute -bottom-8 left-20 w-96 h-96 bg-purple-300 opacity-10 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-4000"></div>
-
-        {/* Content */}
-        <div className="relative z-10">
-          <h1 className="text-6xl font-bold text-white mb-6 leading-tight">
-            Welcome to CLM
-          </h1>
-          <p className="text-xl text-white/80 leading-relaxed max-w-md">
-            Contract Lifecycle Management made simple. Streamline your contract workflows, track approvals, and maintain compliance with our intelligent platform.
-          </p>
+    <AuthCardShell
+      title="Reset Password"
+      subtitle="Enter your email and we’ll send a 6-digit code."
+    >
+      {success && (
+        <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3">
+          <p className="text-sm text-green-700">✓ Code sent. Redirecting…</p>
         </div>
+      )}
 
-        {/* Glassmorphism Badge */}
-        <div className="relative z-10 inline-flex items-center px-6 py-3 rounded-full backdrop-blur-md bg-white/10 border border-white/20 text-white">
-          <div className="w-2 h-2 rounded-full bg-green-400 mr-3"></div>
-          <span className="text-sm font-medium">System Operational</span>
+      {error && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+          <p className="text-sm text-red-700">{error}</p>
         </div>
-      </div>
+      )}
 
-      {/* Right Panel - Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center px-6 py-12 sm:px-12 lg:px-12">
-        <div className="w-full max-w-md">
-          {/* Logo for Mobile */}
-          <div className="lg:hidden mb-8 text-center">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-gradient-to-br from-purple-600 to-pink-500">
-              <span className="text-white font-bold text-2xl">C</span>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label htmlFor="email" className="block text-xs font-semibold text-gray-700 mb-2">
+            Email Address
+          </label>
+          <div className="relative">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300">
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M3 6.5l7 5 7-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M4 6h12a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2z" stroke="currentColor" strokeWidth="1.6" />
+              </svg>
             </div>
-          </div>
-
-          {/* Heading */}
-          <div className="mb-8">
-            <h2 className="text-4xl font-bold text-gray-900 mb-2">
-              Reset Password
-            </h2>
-            <p className="text-gray-600">
-              Enter your email address and we'll send you a code to reset your password.
-            </p>
-          </div>
-
-          {/* Success Message */}
-          {success && (
-            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl">
-              <p className="text-sm text-green-600">
-                ✓ Check your email for the verification code!
-              </p>
-            </div>
-          )}
-
-          {/* Error Message */}
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl">
-              <p className="text-sm text-red-600">{error}</p>
-            </div>
-          )}
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Email Input */}
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition"
-                disabled={isLoading || success}
-              />
-            </div>
-
-            {/* Submit Button */}
-            <button
-              type="submit"
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@company.com"
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-10 py-3 text-sm text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-[#ff6f8a]"
               disabled={isLoading || success}
-              className="w-full py-3 px-4 rounded-xl font-semibold text-white bg-gradient-to-r from-purple-600 to-pink-500 hover:shadow-lg hover:opacity-95 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {success
-                ? 'Code Sent ✓'
-                : isLoading
-                  ? 'Sending...'
-                  : 'Send Reset Code'}
-            </button>
-          </form>
-
-          {/* Back to Login */}
-          <div className="mt-6 text-center">
-            <Link
-              href="/"
-              className="text-sm font-medium text-pink-600 hover:text-pink-700 transition"
-            >
-              Back to login
-            </Link>
+              autoComplete="email"
+            />
           </div>
-
-          {/* Footer */}
-          <p className="mt-8 text-center text-xs text-gray-500">
-            © 2026 CLM System. All rights reserved.
-          </p>
         </div>
+
+        <button
+          type="submit"
+          disabled={isLoading || success}
+          className="mt-1 w-full rounded-xl bg-gradient-to-r from-[#ff8a7a] via-[#ff6f8a] to-[#ff5aa0] py-3.5 text-sm font-semibold text-white shadow-[0_12px_25px_-12px_rgba(255,90,160,0.6)] hover:opacity-95 disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {success ? 'Code Sent ✓' : isLoading ? 'Sending…' : 'Send Reset Code →'}
+        </button>
+      </form>
+
+      <div className="mt-6 text-center">
+        <Link href="/login" className="text-xs text-gray-500 hover:text-gray-700">
+          ← Back to Login
+        </Link>
       </div>
-
-      <style jsx>{`
-        @keyframes blob {
-          0%, 100% {
-            transform: translate(0, 0) scale(1);
-          }
-          33% {
-            transform: translate(30px, -50px) scale(1.1);
-          }
-          66% {
-            transform: translate(-20px, 20px) scale(0.9);
-          }
-        }
-
-        .animate-blob {
-          animation: blob 7s infinite;
-        }
-
-        .animation-delay-2000 {
-          animation-delay: 2s;
-        }
-
-        .animation-delay-4000 {
-          animation-delay: 4s;
-        }
-      `}</style>
-    </div>
+    </AuthCardShell>
   )
 }

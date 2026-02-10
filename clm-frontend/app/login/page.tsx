@@ -6,10 +6,11 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/app/lib/auth-context'
 import AuthCardShell from '@/app/components/AuthCardShell'
 import { APIError } from '@/app/lib/api'
+import GoogleSignInButton from '@/app/components/GoogleSignInButton'
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login, isLoading, error, clearError, isAuthenticated } = useAuth()
+  const { login, loginWithGoogle, isLoading, error, clearError, isAuthenticated } = useAuth()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -49,6 +50,7 @@ export default function LoginPage() {
   }
 
   const displayError = localError || error
+  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID
 
   return (
     <AuthCardShell title="Welcome Back" subtitle="Access your private vault securely" activeTab="login">
@@ -148,21 +150,17 @@ export default function LoginPage() {
           <div className="h-px flex-1 bg-gray-100" />
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            className="flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-          >
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-gray-100 text-[10px]">G</span>
-            Google
-          </button>
-          <button
-            type="button"
-            className="flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white py-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-          >
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-gray-100 text-[10px]">SSO</span>
-            SSO
-          </button>
+        <div className="mt-4 flex justify-center">
+          <GoogleSignInButton
+            clientId={googleClientId}
+            disabled={isLoading}
+            onCredential={async (credential) => {
+              setLocalError('')
+              await loginWithGoogle(credential)
+              router.replace('/dashboard')
+            }}
+            onError={(msg) => setLocalError(msg)}
+          />
         </div>
       </div>
     </AuthCardShell>

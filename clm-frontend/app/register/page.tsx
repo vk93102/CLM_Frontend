@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/app/lib/auth-context'
 import AuthCardShell from '@/app/components/AuthCardShell'
+import GoogleSignInButton from '@/app/components/GoogleSignInButton'
 
 export default function RegisterPage() {
   const router = useRouter()
-  const { register, isLoading, error, clearError, isAuthenticated } = useAuth()
+  const { register, loginWithGoogle, isLoading, error, clearError, isAuthenticated } = useAuth()
 
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -291,6 +292,27 @@ export default function RegisterPage() {
           Login
         </Link>
       </p>
+
+      <div className="mt-6">
+        <div className="flex items-center gap-3">
+          <div className="h-px flex-1 bg-gray-100" />
+          <div className="text-[10px] font-semibold tracking-widest text-gray-300">OR CONTINUE WITH</div>
+          <div className="h-px flex-1 bg-gray-100" />
+        </div>
+
+        <div className="mt-4 flex justify-center">
+          <GoogleSignInButton
+            clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID}
+            disabled={isLoading}
+            onCredential={async (credential) => {
+              setLocalError('')
+              await loginWithGoogle(credential)
+              router.replace('/dashboard')
+            }}
+            onError={(msg) => setLocalError(msg)}
+          />
+        </div>
+      </div>
     </AuthCardShell>
   )
 }

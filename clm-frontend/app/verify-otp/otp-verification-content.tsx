@@ -117,7 +117,7 @@ export default function OTPVerificationContent() {
             `/reset-password?email=${encodeURIComponent(email)}&otp=${otpCode}`
           )
         } else {
-          router.push('/dashboard')
+            router.replace('/dashboard')
         }
       }, 1200)
     } catch (err: any) {
@@ -174,11 +174,17 @@ export default function OTPVerificationContent() {
     return `Enter the 6-digit code sent to ${email}`
   }
 
+  const getSuccessMessage = () => {
+    if (otpType === 'password-reset') return '✓ OTP verified. Redirecting to reset password…'
+    if (otpType === 'login') return '✓ Email verified. Signing you in…'
+    return '✓ Account verified & activated. Redirecting to dashboard…'
+  }
+
   return (
     <AuthCardShell title={getTitle()} subtitle={getSubtitle()}>
       {verificationSuccess && (
         <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3">
-          <p className="text-sm text-green-700">✓ OTP verified successfully!</p>
+          <p className="text-sm text-green-700">{getSuccessMessage()}</p>
         </div>
       )}
 
