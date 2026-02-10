@@ -10,7 +10,7 @@ interface AuthContextType {
   error: string | null
   user: User | null
   login: (email: string, password: string) => Promise<void>
-  register: (data: { email: string; password: string; full_name: string }) => Promise<void>
+  register: (data: { email: string; password: string; full_name: string; company?: string }) => Promise<void>
   logout: () => void
   clearError: () => void
 }
@@ -87,16 +87,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const register = async (data: { email: string; password: string; full_name: string }) => {
+  const register = async (data: { email: string; password: string; full_name: string; company?: string }) => {
     try {
       setError(null)
-      const response = await authAPI.register({
+      await authAPI.register({
         email: data.email,
         password: data.password,
         first_name: data.full_name,
+        company: data.company,
       })
-      setUser(response.user)
-      setIsAuthenticated(true)
+      // Registration now requires OTP verification before login.
+      setUser(null)
+      setIsAuthenticated(false)
     } catch (err: any) {
       const errorMessage = err?.message || err?.detail || 'Registration failed'
       setError(errorMessage)

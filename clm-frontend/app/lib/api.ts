@@ -3,7 +3,7 @@
  * Production-level API integration with proper error handling and typing
  */
 
-const BASE_URL = 'http://127.0.0.1:8000'
+const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:11000'
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -27,6 +27,12 @@ export interface AuthResponse {
 
 export interface OTPResponse {
   message: string
+}
+
+export interface PendingRegisterResponse {
+  message: string
+  pending_verification: true
+  email: string
 }
 
 export interface ErrorResponse {
@@ -72,6 +78,49 @@ export class APIError extends Error {
   }
 }
 
+function formatValidationErrors(data: any): string | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+
+  const parts: string[] = []
+  for (const [rawKey, value] of Object.entries(data)) {
+    if (value == null) continue
+
+    const key = String(rawKey)
+    const label = key.replace(/_/g, ' ')
+
+    const collect = (v: any): string[] => {
+      if (v == null) return []
+      if (typeof v === 'string') return [v]
+      if (Array.isArray(v)) return v.flatMap(collect)
+      if (typeof v === 'object') {
+        if (typeof (v as any).detail === 'string') return [(v as any).detail]
+        if (typeof (v as any).message === 'string') return [(v as any).message]
+        const nested = formatValidationErrors(v)
+        if (nested) return [nested]
+        try {
+          return [JSON.stringify(v)]
+        } catch {
+          return [String(v)]
+        }
+      }
+      return [String(v)]
+    }
+
+    const messages = collect(value).filter(Boolean)
+    if (messages.length === 0) continue
+
+    // Prefer showing general errors without a noisy label.
+    if (key === 'non_field_errors' || key === 'detail') {
+      parts.push(messages.join(' '))
+      continue
+    }
+
+    parts.push(`${label}: ${messages.join(' ')}`)
+  }
+
+  return parts.length ? parts.join(' • ') : null
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get('content-type')
   let data: any
@@ -87,10 +136,12 @@ async function handleResponse<T>(response: Response): Promise<T> {
   }
 
   if (!response.ok) {
-    const errorMessage =
+    let errorMessage =
       data?.error ||
       data?.message ||
       data?.detail ||
+      (typeof data === 'string' ? data : null) ||
+      formatValidationErrors(data) ||
       `HTTP Error: ${response.status}`
 
     throw new APIError(response.status, errorMessage, data)
@@ -203,7 +254,7 @@ export const tokenManager = {
  */
 export async function registerUser(
   credentials: RegisterCredentials
-): Promise<AuthResponse> {
+): Promise<PendingRegisterResponse> {
   const response = await fetch(`${BASE_URL}/api/auth/register/`, {
     method: 'POST',
     headers: {
@@ -212,7 +263,7 @@ export async function registerUser(
     body: JSON.stringify(credentials),
   })
 
-  return handleResponse<AuthResponse>(response)
+  return handleResponse<PendingRegisterResponse>(response)
 }
 
 /**
@@ -305,7 +356,7 @@ export async function requestLoginOTP(email: string): Promise<OTPResponse> {
  */
 export async function verifyEmailOTP(
   data: VerifyOTPData
-): Promise<OTPResponse> {
+): Promise<AuthResponse> {
   const response = await fetch(`${BASE_URL}/api/auth/verify-email-otp/`, {
     method: 'POST',
     headers: {
@@ -314,7 +365,10 @@ export async function verifyEmailOTP(
     body: JSON.stringify(data),
   })
 
-  return handleResponse<OTPResponse>(response)
+  const result = await handleResponse<AuthResponse>(response)
+  tokenManager.setTokens(result.access, result.refresh)
+  tokenManager.setUser(result.user)
+  return result
 }
 
 /**
@@ -919,6 +973,7 @@ export const authAPI = {
     password: string
     first_name?: string
     last_name?: string
+    company?: string
   }) => {
     const full_name = [data.first_name, data.last_name]
       .filter(Boolean)
@@ -929,10 +984,9 @@ export const authAPI = {
       email: data.email,
       password: data.password,
       full_name,
+      // Extra field supported by backend (best-effort).
+      ...(data.company ? ({ company: data.company } as any) : {}),
     })
-
-    tokenManager.setTokens(result.access, result.refresh)
-    tokenManager.setUser(result.user)
     return result
   },
 

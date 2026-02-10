@@ -1,19 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/app/lib/auth-context'
 
 export default function HomePage() {
   const router = useRouter()
-  const { login, isLoading, error, clearError, isAuthenticated } = useAuth()
-  const [showLogin, setShowLogin] = useState(false)
-
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [localError, setLocalError] = useState('')
-  const [rememberMe, setRememberMe] = useState(false)
+  const { isAuthenticated } = useAuth()
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -21,135 +15,6 @@ export default function HomePage() {
       router.push('/dashboard')
     }
   }, [isAuthenticated, router])
-
-  // Clear error on unmount
-  useEffect(() => {
-    return () => {
-      clearError()
-    }
-  }, [clearError])
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLocalError('')
-
-    if (!email || !password) {
-      setLocalError('Please enter your email and password')
-      return
-    }
-
-    try {
-      await login(email, password)
-    } catch (err) {
-      setLocalError(error || 'Login failed. Please try again.')
-    }
-  }
-
-  const displayError = localError || error
-
-  if (showLogin) {
-    return (
-      <div className="flex h-screen bg-white">
-        {/* Left Section - Login Form */}
-        <div className="w-full lg:w-1/2 flex items-center justify-center px-6 py-12">
-          <div className="w-full max-w-md">
-            <div className="mb-8">
-              <button
-                onClick={() => setShowLogin(false)}
-                className="text-gray-500 hover:text-gray-700 mb-6 flex items-center gap-2"
-              >
-                ← Back
-              </button>
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h1>
-              <p className="text-gray-600">Sign in to your account</p>
-            </div>
-
-            {displayError && (
-              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-red-700 text-sm">{displayError}</p>
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="your@email.com"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
-                  disabled={isLoading}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
-                  disabled={isLoading}
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <label className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 border-gray-300 rounded"
-                  />
-                  <span className="ml-2 text-sm text-gray-600">Remember me</span>
-                </label>
-                <Link href="/forgot-password" className="text-sm text-indigo-600 hover:text-indigo-700">
-                  Forgot password?
-                </Link>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold rounded-lg hover:shadow-lg transition disabled:opacity-50"
-              >
-                {isLoading ? 'Signing in...' : 'Sign In'}
-              </button>
-            </form>
-
-            <p className="mt-6 text-center text-gray-600">
-              Don't have an account?{' '}
-              <Link href="/register" className="text-indigo-600 hover:text-indigo-700 font-semibold">
-                Sign up
-              </Link>
-            </p>
-          </div>
-        </div>
-
-        {/* Right Section - Features */}
-        <div className="hidden lg:flex w-1/2 bg-gradient-to-br from-indigo-600 to-purple-600 text-white flex-col justify-center px-12">
-          <h2 className="text-4xl font-bold mb-8">Contract Management Made Easy</h2>
-          <div className="space-y-6">
-            {[
-              { icon: '📋', title: 'Smart Templates', desc: 'Pre-built contract templates' },
-              { icon: '🔍', title: 'Smart Search', desc: 'Find contracts instantly' },
-              { icon: '✅', title: 'Easy Approvals', desc: 'Streamlined workflows' }
-            ].map((feature, i) => (
-              <div key={i} className="flex gap-4">
-                <div className="text-3xl">{feature.icon}</div>
-                <div>
-                  <h3 className="font-semibold mb-1">{feature.title}</h3>
-                  <p className="text-white/80">{feature.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
@@ -164,12 +29,9 @@ export default function HomePage() {
               <span className="text-xl font-bold text-gray-900">CLM System</span>
             </div>
             <div className="flex gap-4">
-              <button
-                onClick={() => setShowLogin(true)}
-                className="px-6 py-2.5 rounded-lg text-indigo-600 hover:bg-indigo-50 font-medium transition"
-              >
+              <Link href="/login" className="px-6 py-2.5 rounded-lg text-indigo-600 hover:bg-indigo-50 font-medium transition">
                 Sign In
-              </button>
+              </Link>
               <Link
                 href="/register"
                 className="px-6 py-2.5 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-medium hover:shadow-lg transition"
@@ -199,12 +61,12 @@ export default function HomePage() {
               >
                 Start Free Trial
               </Link>
-              <button
-                onClick={() => setShowLogin(true)}
+              <Link
+                href="/login"
                 className="px-8 py-3.5 rounded-lg border-2 border-gray-300 text-gray-700 font-semibold hover:border-indigo-600 hover:text-indigo-600 transition"
               >
                 Sign In
-              </button>
+              </Link>
             </div>
             <p className="text-sm text-gray-500 mt-4">No credit card required • 14-day free trial</p>
           </div>

@@ -1,9 +1,18 @@
+
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useRef, useState } from 'react'
+import type { ClipboardEvent, FormEvent, KeyboardEvent } from 'react'
 import Link from 'next/link'
-import { verifyEmailOTP, requestLoginOTP, verifyPasswordResetOTP, resendPasswordResetOTP } from '@/app/lib/api'
+import { useRouter, useSearchParams } from 'next/navigation'
+
+import {
+  requestLoginOTP,
+  resendPasswordResetOTP,
+  verifyEmailOTP,
+  verifyPasswordResetOTP,
+} from '@/app/lib/api'
+import AuthCardShell from '@/app/components/AuthCardShell'
 
 type OTPType = 'email' | 'password-reset' | 'login'
 
@@ -23,18 +32,22 @@ export default function OTPVerificationContent() {
   const [tempEmail, setTempEmail] = useState(email)
   const inputRefs = useRef<(HTMLInputElement | null)[]>([])
 
-  // Resend countdown
   useEffect(() => {
-    let interval: NodeJS.Timeout
+    setTempEmail(email)
+  }, [email])
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | undefined
     if (resendCountdown > 0) {
       interval = setInterval(() => {
         setResendCountdown((prev) => prev - 1)
       }, 1000)
     }
-    return () => clearInterval(interval)
+    return () => {
+      if (interval) clearInterval(interval)
+    }
   }, [resendCountdown])
 
-  // Auto-focus first input
   useEffect(() => {
     if (email && inputRefs.current[0]) {
       inputRefs.current[0].focus()
@@ -44,48 +57,41 @@ export default function OTPVerificationContent() {
   const handleOtpChange = (index: number, value: string) => {
     if (!/^\d*$/.test(value)) return
 
-    const newOtp = [...otp]
-    newOtp[index] = value.slice(-1)
-    setOtp(newOtp)
+    const nextOtp = [...otp]
+    nextOtp[index] = value.slice(-1)
+    setOtp(nextOtp)
 
-    // Auto-focus next input
     if (value && index < 5) {
       inputRefs.current[index + 1]?.focus()
     }
   }
 
-  const handleKeyDown = (
-    index: number,
-    e: React.KeyboardEvent<HTMLInputElement>
-  ) => {
+  const handleKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Backspace' && !otp[index] && index > 0) {
       inputRefs.current[index - 1]?.focus()
     }
   }
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+  const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault()
     const pastedText = e.clipboardData.getData('text')
     const digits = pastedText.replace(/\D/g, '').split('')
-    
-    if (digits.length > 0) {
-      const newOtp = [...otp]
-      digits.forEach((digit, index) => {
-        if (index < 6) {
-          newOtp[index] = digit
-        }
-      })
-      setOtp(newOtp)
-      
-      // Focus last filled input
-      const lastIndex = Math.min(digits.length - 1, 5)
-      inputRefs.current[lastIndex]?.focus()
-    }
+
+    if (digits.length === 0) return
+
+    const nextOtp = [...otp]
+    digits.forEach((digit, idx) => {
+      if (idx < 6) nextOtp[idx] = digit
+    })
+    setOtp(nextOtp)
+
+    const lastIndex = Math.min(digits.length - 1, 5)
+    inputRefs.current[lastIndex]?.focus()
   }
 
   const otpCode = otp.join('')
 
-  const handleVerify = async (e: React.FormEvent) => {
+  const handleVerify = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
 
@@ -95,7 +101,6 @@ export default function OTPVerificationContent() {
     }
 
     setIsLoading(true)
-
     try {
       if (otpType === 'email') {
         await verifyEmailOTP({ email, otp: otpCode })
@@ -108,11 +113,13 @@ export default function OTPVerificationContent() {
       setVerificationSuccess(true)
       setTimeout(() => {
         if (otpType === 'password-reset') {
-          router.push(`/reset-password?email=${encodeURIComponent(email)}&otp=${otpCode}`)
+          router.push(
+            `/reset-password?email=${encodeURIComponent(email)}&otp=${otpCode}`
+          )
         } else {
           router.push('/dashboard')
         }
-      }, 1500)
+      }, 1200)
     } catch (err: any) {
       setError(
         err?.message ||
@@ -164,210 +171,106 @@ export default function OTPVerificationContent() {
   }
 
   const getSubtitle = () => {
-    switch (otpType) {
-      case 'password-reset':
-        return `Enter the 6-digit code sent to ${email}`
-      case 'login':
-        return `Enter the 6-digit code sent to ${email}`
-      default:
-        return `Enter the 6-digit code sent to ${email}`
-    }
+    return `Enter the 6-digit code sent to ${email}`
   }
 
   return (
-    <div className="flex h-screen bg-white">
-      {/* Left Panel - Gradient */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-purple-600 via-purple-500 to-pink-500 relative overflow-hidden flex-col justify-between p-12">
-        {/* Animated Background Blobs */}
-        <div className="absolute top-0 left-0 w-96 h-96 bg-white opacity-10 rounded-full mix-blend-multiply filter blur-3xl animate-blob"></div>
-        <div className="absolute top-0 right-0 w-96 h-96 bg-pink-300 opacity-10 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-2000"></div>
-        <div className="absolute -bottom-8 left-20 w-96 h-96 bg-purple-300 opacity-10 rounded-full mix-blend-multiply filter blur-3xl animate-blob animation-delay-4000"></div>
-
-        {/* Content */}
-        <div className="relative z-10">
-          <h1 className="text-6xl font-bold text-white mb-6 leading-tight">
-            Welcome to CLM
-          </h1>
-          <p className="text-xl text-white/80 leading-relaxed max-w-md">
-            Contract Lifecycle Management made simple. Streamline your contract workflows, track approvals, and maintain compliance with our intelligent platform.
-          </p>
+    <AuthCardShell title={getTitle()} subtitle={getSubtitle()}>
+      {verificationSuccess && (
+        <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3">
+          <p className="text-sm text-green-700">✓ OTP verified successfully!</p>
         </div>
+      )}
 
-        {/* Glassmorphism Badge */}
-        <div className="relative z-10 inline-flex items-center px-6 py-3 rounded-full backdrop-blur-md bg-white/10 border border-white/20 text-white">
-          <div className="w-2 h-2 rounded-full bg-green-400 mr-3"></div>
-          <span className="text-sm font-medium">System Operational</span>
+      {error && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+          <p className="text-sm text-red-700">{error}</p>
         </div>
-      </div>
+      )}
 
-      {/* Right Panel - Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center px-6 py-12 sm:px-12 lg:px-12">
-        <div className="w-full max-w-md">
-          {/* Logo for Mobile */}
-          <div className="lg:hidden mb-8 text-center">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-gradient-to-br from-purple-600 to-pink-500">
-              <span className="text-white font-bold text-2xl">C</span>
-            </div>
-          </div>
-
-          {/* Heading */}
-          <div className="mb-8 text-center lg:text-left">
-            <h2 className="text-4xl font-bold text-gray-900 mb-2">
-              {getTitle()}
-            </h2>
-            <p className="text-gray-600">{getSubtitle()}</p>
-          </div>
-
-          {/* Success Message */}
-          {verificationSuccess && (
-            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl">
-              <p className="text-sm text-green-600">✓ OTP verified successfully!</p>
-            </div>
-          )}
-
-          {/* Error Message */}
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl">
-              <p className="text-sm text-red-600">{error}</p>
-            </div>
-          )}
-
-          {/* Form */}
-          <form onSubmit={handleVerify} className="space-y-8">
-            {/* Email Display with Change Option */}
-            {showChangeEmail ? (
-              <div className="space-y-3">
-                <input
-                  type="email"
-                  value={tempEmail}
-                  onChange={(e) => setTempEmail(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  placeholder="Enter new email"
-                />
-                <button
-                  type="button"
-                  onClick={handleChangeEmail}
-                  className="text-sm text-purple-600 hover:text-purple-700"
-                >
-                  Update Email
-                </button>
-              </div>
-            ) : (
-              <div className="text-center py-4">
-                <p className="text-gray-600 mb-2">OTP sent to:</p>
-                <p className="text-lg font-semibold text-gray-900 mb-2">{email}</p>
-                <button
-                  type="button"
-                  onClick={() => setShowChangeEmail(true)}
-                  className="text-sm text-pink-600 hover:text-pink-700"
-                >
-                  Change Email
-                </button>
-              </div>
-            )}
-
-            {/* OTP Input Fields */}
-            <div className="space-y-4">
-              <label className="block text-sm text-gray-700 font-medium">
-                Enter 6-digit code
-              </label>
-              <div className="flex justify-center gap-2">
-                {otp.map((digit, index) => (
-                  <input
-                    key={index}
-                    ref={(el) => {
-                      inputRefs.current[index] = el
-                    }}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={digit}
-                    onChange={(e) => handleOtpChange(index, e.target.value)}
-                    onKeyDown={(e) => handleKeyDown(index, e)}
-                    onPaste={handlePaste}
-                    className="w-12 h-14 text-center text-2xl font-bold rounded-xl border-2 border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition"
-                    disabled={isLoading || verificationSuccess}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Submit Button */}
+      <form onSubmit={handleVerify} className="space-y-5">
+        {showChangeEmail ? (
+          <div className="space-y-2">
+            <label className="block text-xs font-semibold text-gray-700">Email</label>
+            <input
+              type="email"
+              value={tempEmail}
+              onChange={(e) => setTempEmail(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-[#ff6f8a]"
+              placeholder="name@company.com"
+              disabled={isLoading}
+            />
             <button
-              type="submit"
-              disabled={isLoading || verificationSuccess || otpCode.length !== 6}
-              className="w-full py-3 px-4 rounded-xl font-semibold text-white bg-gradient-to-r from-purple-600 to-pink-500 hover:shadow-lg hover:opacity-95 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              type="button"
+              onClick={handleChangeEmail}
+              className="text-xs font-semibold text-[#ff5aa0] hover:underline"
+              disabled={isLoading}
             >
-              {verificationSuccess
-                ? 'Verified ✓'
-                : isLoading
-                  ? 'Verifying...'
-                  : 'Verify & Sign in'}
+              Update email
             </button>
-          </form>
-
-          {/* Resend OTP */}
-          <div className="mt-8 text-center">
-            {resendCountdown > 0 ? (
-              <p className="text-gray-600 text-sm">
-                Resend code in{' '}
-                <span className="font-semibold text-gray-900">
-                  {resendCountdown}s
-                </span>
-              </p>
-            ) : (
-              <button
-                onClick={handleResend}
-                disabled={isLoading || verificationSuccess}
-                className="text-sm font-medium text-pink-600 hover:text-pink-700 transition disabled:text-gray-400"
-              >
-                Didn't receive the code? Resend OTP
-              </button>
-            )}
           </div>
-
-          {/* Back to Login */}
-          <div className="mt-6 text-center">
-            <Link
-              href="/"
-              className="text-sm text-gray-600 hover:text-gray-900 transition flex items-center justify-center gap-2"
+        ) : (
+          <div className="rounded-xl bg-gray-50 border border-gray-200 px-4 py-3">
+            <div className="text-[11px] font-semibold text-gray-400">OTP sent to</div>
+            <div className="mt-1 text-sm font-semibold text-gray-900 break-all">{email}</div>
+            <button
+              type="button"
+              onClick={() => setShowChangeEmail(true)}
+              className="mt-2 text-xs font-semibold text-[#ff5aa0] hover:underline"
+              disabled={isLoading}
             >
-              ← Back to Password Login
-            </Link>
+              Change email
+            </button>
           </div>
+        )}
 
-          {/* Footer */}
-          <p className="mt-8 text-center text-xs text-gray-500">
-            © 2026 CLM System. All rights reserved.
-          </p>
+        <div className="flex justify-center gap-2">
+          {otp.map((digit, index) => (
+            <input
+              key={index}
+              ref={(el) => {
+                inputRefs.current[index] = el
+              }}
+              type="text"
+              inputMode="numeric"
+              maxLength={1}
+              value={digit}
+              onChange={(e) => handleOtpChange(index, e.target.value)}
+              onKeyDown={(e) => handleKeyDown(index, e)}
+              onPaste={handlePaste}
+              className="h-12 w-10 rounded-xl border border-gray-200 bg-gray-50 text-center text-lg font-bold text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-[#ff6f8a]"
+              disabled={isLoading}
+              aria-label={`OTP digit ${index + 1}`}
+            />
+          ))}
         </div>
-      </div>
 
-      <style jsx>{`
-        @keyframes blob {
-          0%, 100% {
-            transform: translate(0, 0) scale(1);
-          }
-          33% {
-            transform: translate(30px, -50px) scale(1.1);
-          }
-          66% {
-            transform: translate(-20px, 20px) scale(0.9);
-          }
-        }
+        <button
+          type="submit"
+          disabled={isLoading}
+          className="w-full rounded-xl bg-gradient-to-r from-[#ff8a7a] via-[#ff6f8a] to-[#ff5aa0] py-3.5 text-sm font-semibold text-white shadow-[0_12px_25px_-12px_rgba(255,90,160,0.6)] hover:opacity-95 disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {isLoading ? 'Verifying...' : 'Verify OTP →'}
+        </button>
 
-        .animate-blob {
-          animation: blob 7s infinite;
-        }
+        <div className="text-center">
+          <div className="text-xs text-gray-500">Didn't receive the code?</div>
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resendCountdown > 0 || isLoading}
+            className="mt-2 text-xs font-semibold text-[#ff5aa0] hover:underline disabled:text-gray-400 disabled:no-underline"
+          >
+            {resendCountdown > 0 ? `Resend in ${resendCountdown}s` : 'Resend code'}
+          </button>
+        </div>
 
-        .animation-delay-2000 {
-          animation-delay: 2s;
-        }
-
-        .animation-delay-4000 {
-          animation-delay: 4s;
-        }
-      `}</style>
-    </div>
+        <div className="text-center">
+          <Link href="/login" className="text-xs text-gray-500 hover:text-gray-700">
+            ← Back to Login
+          </Link>
+        </div>
+      </form>
+    </AuthCardShell>
   )
 }
