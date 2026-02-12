@@ -185,7 +185,9 @@ const DashboardPageV2: React.FC = () => {
   });
   const [isSyncing, setIsSyncing] = useState(false);
   const [recentContracts, setRecentContracts] = useState<Contract[]>([]);
-  const [upcomingEvents, setUpcomingEvents] = useState<Array<{ id: string; title: string; start: string; category?: string }>>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<
+    Array<{ id: string; title: string; start: string; end?: string; allDay?: boolean; category?: string }>
+  >([]);
   const [growth, setGrowth] = useState<GrowthPoint[]>([]);
   const [insights, setInsights] = useState<DashboardInsights | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
@@ -207,7 +209,9 @@ const DashboardPageV2: React.FC = () => {
         const client = new ApiClient();
         const start = new Date();
         const end = new Date();
-        end.setDate(end.getDate() + 30);
+        // Wide window so dashboard always has events to show (next 3 upcoming, else last 3 past).
+        start.setDate(start.getDate() - 365);
+        end.setDate(end.getDate() + 365);
         const [statsResponse, recentResponse, contractsResponse, insightsResponse, eventsResponse] = await Promise.all([
           client.getContractStatistics(),
           client.getRecentContracts(5),
@@ -216,7 +220,7 @@ const DashboardPageV2: React.FC = () => {
           client.listCalendarEvents({ start: start.toISOString(), end: end.toISOString() }),
         ]);
 
-        const unauthorized = [statsResponse, recentResponse, contractsResponse, insightsResponse].some(
+        const unauthorized = [statsResponse, recentResponse, contractsResponse, insightsResponse, eventsResponse].some(
           (r) => !r.success && r.status === 401
         );
         if (unauthorized) {
@@ -291,14 +295,43 @@ const DashboardPageV2: React.FC = () => {
         if (eventsResponse && (eventsResponse as any).success && (eventsResponse as any).data) {
           const raw = (eventsResponse as any).data;
           const items = Array.isArray(raw) ? raw : raw.results || [];
-          setUpcomingEvents(
-            items.slice(0, 6).map((e: any) => ({
-              id: e.id,
-              title: e.title,
-              start: e.start_datetime || e.startDatetime || e.start || new Date().toISOString(),
-              category: e.category,
-            }))
-          );
+
+          const now = new Date();
+          const normalized = items
+            .map((e: any) => {
+              const startIso = e.start_datetime || e.startDatetime || e.start;
+              const endIso = e.end_datetime || e.endDatetime || e.end;
+              const startStr = startIso ? String(startIso) : '';
+              const endStr = endIso ? String(endIso) : undefined;
+              const startDate = startStr ? new Date(startStr) : null;
+              const startMs = startDate && !Number.isNaN(startDate.getTime()) ? startDate.getTime() : Number.NaN;
+
+              return {
+                id: String(e.id || ''),
+                title: String(e.title || 'Untitled event'),
+                start: startStr,
+                end: endStr,
+                allDay: Boolean(e.all_day ?? e.allDay ?? false),
+                category: e.category,
+                __startMs: startMs,
+              };
+            })
+            .filter((e: any) => Number.isFinite(e.__startMs))
+            .sort((a: any, b: any) => a.__startMs - b.__startMs);
+
+          const nowMs = now.getTime();
+          const upcomingOrOngoing = normalized.filter((e: any) => {
+            const startMs = e.__startMs;
+            const endMs = e.end ? new Date(e.end).getTime() : Number.NaN;
+            const hasValidEnd = Number.isFinite(endMs);
+            return startMs >= nowMs || (hasValidEnd && endMs >= nowMs);
+          });
+
+          const selected = (upcomingOrOngoing.length ? upcomingOrOngoing : [...normalized].reverse())
+            .slice(0, 3)
+            .map(({ __startMs, ...rest }: any) => rest);
+
+          setUpcomingEvents(selected);
         } else {
           setUpcomingEvents([]);
         }
@@ -368,16 +401,29 @@ const DashboardPageV2: React.FC = () => {
   const esignWaiting = Math.max(0, esignTotal - esignCompleted);
   const completionRate = esignTotal > 0 ? Math.round((esignCompleted / esignTotal) * 100) : 0;
 
+  const formatReminderStamp = (iso: string, allDay?: boolean) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return 'UPCOMING';
+    if (allDay) {
+      return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
+    }
+    return d
+      .toLocaleString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+      .toUpperCase();
+  };
+
   return (
     <DashboardLayout>
       {/* Header (screenshot style) */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-7">
         <div className="flex items-center gap-4">
-          <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900">User Contract Overview</h1>
-          <span className="hidden sm:inline-flex items-center gap-2 text-xs font-semibold bg-white/80 border border-slate-200 rounded-full px-3 py-1 text-slate-700">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            My Dashboard
-          </span>
+          <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900">Dashboard</h1>
         </div>
       </div>
 
@@ -550,7 +596,6 @@ const DashboardPageV2: React.FC = () => {
                   <p className="text-xs font-bold text-slate-400">Completion Rate</p>
                   <p className="text-3xl font-extrabold text-slate-900 mt-1">{completionRate}%</p>
                 </div>
-                <p className="text-xs font-bold text-emerald-600">+5.4%</p>
               </div>
 
               <div className="mt-4 h-2 rounded-full bg-slate-100 overflow-hidden">
@@ -588,10 +633,10 @@ const DashboardPageV2: React.FC = () => {
             </div>
 
             <div className="mt-5 space-y-3">
-              {upcomingEvents.slice(0, 3).map((e, idx) => (
+              {upcomingEvents.map((e, idx) => (
                 <div key={e.id || String(idx)} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-[11px] font-bold text-slate-400">
-                    {new Date(e.start).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }).toUpperCase()}
+                    {formatReminderStamp(e.start, e.allDay)}
                   </p>
                   <p className="mt-1 text-sm font-extrabold text-slate-900">{e.title}</p>
                 </div>
