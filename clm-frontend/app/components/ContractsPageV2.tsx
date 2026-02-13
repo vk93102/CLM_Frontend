@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import DashboardLayout from './DashboardLayout';
 import { useRouter } from 'next/navigation';
 import { ApiClient, Contract } from '@/app/lib/api-client';
-import { Bell, FileText, Search } from 'lucide-react';
+import { FileText, Search } from 'lucide-react';
 
 interface ContractStats {
   total: number;
@@ -143,9 +143,6 @@ const ContractsPageV2: React.FC = () => {
           >
             <FileText className="w-4 h-4" />
             New Contract
-          </button>
-          <button className="w-11 h-11 rounded-full bg-white border border-slate-200 inline-flex items-center justify-center" aria-label="Notifications">
-            <Bell className="w-5 h-5 text-slate-700" />
           </button>
         </div>
       </div>
