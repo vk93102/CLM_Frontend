@@ -435,6 +435,8 @@ export interface CalendarEvent {
   updated_at?: string
 }
 
+import { API_BASE_URL } from './env'
+
 export class ApiClient {
   private baseUrl: string
   private token: string | null = null
@@ -442,8 +444,8 @@ export class ApiClient {
 
   private static readonly API_V1_PREFIX = '/api/v1'
 
-  constructor(baseUrl: string = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000') {
-    this.baseUrl = baseUrl
+  constructor(baseUrl: string = API_BASE_URL) {
+    this.baseUrl = String(baseUrl || API_BASE_URL).trim().replace(/\/+$/, '')
     this.loadTokens()
   }
 

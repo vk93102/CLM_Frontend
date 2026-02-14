@@ -3,7 +3,9 @@
  * Production-level API integration with proper error handling and typing
  */
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:11000'
+import { API_BASE_URL } from './env'
+
+const BASE_URL = API_BASE_URL
 
 // ============================================================================
 // TYPE DEFINITIONS

@@ -8,6 +8,7 @@
     "prebuild": "node scripts/copy-pdfjs-assets.mjs",
     "dev": "next dev --webpack",
     "build": "npx -y node@20 ./node_modules/next/dist/bin/next build --webpack --experimental-app-only",
+    "build:pages": "STATIC_EXPORT=1 npm run build",
     "start": "next start",
     "lint": "eslint ."
   },

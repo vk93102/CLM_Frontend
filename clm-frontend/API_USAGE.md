@@ -784,10 +784,10 @@ interface ApiResponse<T = any> {
 
 **.env.local:**
 ```
-NEXT_PUBLIC_API_URL=http://127.0.0.1:8000/
+NEXT_PUBLIC_API_BASE_URL=https://lawflow-267708864896.asia-south1.run.app
 ```
 
-The ApiClient automatically uses this URL if not specified in constructor.
+The API client reads `NEXT_PUBLIC_API_BASE_URL` (preferred). For backward compatibility it also accepts `NEXT_PUBLIC_API_URL`.
 
 ---
 
